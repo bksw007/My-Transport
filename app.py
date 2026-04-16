@@ -19,6 +19,7 @@ from flask import (
     send_file,
     url_for,
 )
+import psycopg
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -32,6 +33,7 @@ from werkzeug.utils import secure_filename
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "transport.db"
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
+DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 PDF_FONT_REGULAR = "Helvetica"
 PDF_FONT_BOLD = "Helvetica-Bold"
@@ -43,8 +45,11 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
-        g.db = sqlite3.connect(DATABASE_PATH)
-        g.db.row_factory = sqlite3.Row
+        if DATABASE_URL:
+            g.db = psycopg.connect(DATABASE_URL)
+        else:
+            g.db = sqlite3.connect(DATABASE_PATH)
+            g.db.row_factory = sqlite3.Row
     return g.db
 
 
@@ -57,28 +62,68 @@ def close_db(_: object | None) -> None:
 
 def init_db() -> None:
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    with closing(sqlite3.connect(DATABASE_PATH)) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS trips (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trip_date TEXT NOT NULL,
-                origin TEXT NOT NULL,
-                destination TEXT NOT NULL,
-                note TEXT DEFAULT '',
-                created_at TEXT NOT NULL
-            );
+    if DATABASE_URL:
+        with closing(psycopg.connect(DATABASE_URL)) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS trips (
+                        id BIGSERIAL PRIMARY KEY,
+                        trip_date DATE NOT NULL,
+                        origin TEXT NOT NULL,
+                        destination TEXT NOT NULL,
+                        note TEXT DEFAULT '',
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS trip_images (
+                        id BIGSERIAL PRIMARY KEY,
+                        trip_id BIGINT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
+                        file_name TEXT NOT NULL,
+                        original_name TEXT NOT NULL
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_trips_trip_date ON trips (trip_date DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id)
+                    """
+                )
+            connection.commit()
+    else:
+        with closing(sqlite3.connect(DATABASE_PATH)) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS trips (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trip_date TEXT NOT NULL,
+                    origin TEXT NOT NULL,
+                    destination TEXT NOT NULL,
+                    note TEXT DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
 
-            CREATE TABLE IF NOT EXISTS trip_images (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                trip_id INTEGER NOT NULL,
-                file_name TEXT NOT NULL,
-                original_name TEXT NOT NULL,
-                FOREIGN KEY (trip_id) REFERENCES trips (id) ON DELETE CASCADE
-            );
-            """
-        )
-        connection.commit()
+                CREATE TABLE IF NOT EXISTS trip_images (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trip_id INTEGER NOT NULL,
+                    file_name TEXT NOT NULL,
+                    original_name TEXT NOT NULL,
+                    FOREIGN KEY (trip_id) REFERENCES trips (id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_trips_trip_date ON trips (trip_date DESC);
+                CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id);
+                """
+            )
+            connection.commit()
 
 
 def register_pdf_fonts() -> None:
@@ -139,29 +184,59 @@ def month_bounds(month_value: str | None) -> tuple[str, str]:
 def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     start, end = month_bounds(month_value)
     db = get_db()
-    rows = db.execute(
-        """
-        SELECT
-            t.id,
-            t.trip_date,
-            t.origin,
-            t.destination,
-            t.note,
-            GROUP_CONCAT(i.file_name, '||') AS image_names,
-            GROUP_CONCAT(i.original_name, '||') AS original_names
-        FROM trips t
-        LEFT JOIN trip_images i ON i.trip_id = t.id
-        WHERE t.trip_date >= ? AND t.trip_date < ?
-        GROUP BY t.id
-        ORDER BY t.trip_date DESC, t.id DESC
-        """,
-        (start, end),
-    ).fetchall()
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    t.id,
+                    t.trip_date,
+                    t.origin,
+                    t.destination,
+                    t.note,
+                    COALESCE(STRING_AGG(i.file_name, '||' ORDER BY i.id), '') AS image_names,
+                    COALESCE(STRING_AGG(i.original_name, '||' ORDER BY i.id), '') AS original_names
+                FROM trips t
+                LEFT JOIN trip_images i ON i.trip_id = t.id
+                WHERE t.trip_date >= %s AND t.trip_date < %s
+                GROUP BY t.id
+                ORDER BY t.trip_date DESC, t.id DESC
+                """,
+                (start, end),
+            )
+            rows = cursor.fetchall()
+    else:
+        rows = db.execute(
+            """
+            SELECT
+                t.id,
+                t.trip_date,
+                t.origin,
+                t.destination,
+                t.note,
+                GROUP_CONCAT(i.file_name, '||') AS image_names,
+                GROUP_CONCAT(i.original_name, '||') AS original_names
+            FROM trips t
+            LEFT JOIN trip_images i ON i.trip_id = t.id
+            WHERE t.trip_date >= ? AND t.trip_date < ?
+            GROUP BY t.id
+            ORDER BY t.trip_date DESC, t.id DESC
+            """,
+            (start, end),
+        ).fetchall()
 
     trips = []
     for row in rows:
-        image_names = row["image_names"].split("||") if row["image_names"] else []
-        original_names = row["original_names"].split("||") if row["original_names"] else []
+        row_id = row[0] if DATABASE_URL else row["id"]
+        row_trip_date = row[1] if DATABASE_URL else row["trip_date"]
+        row_origin = row[2] if DATABASE_URL else row["origin"]
+        row_destination = row[3] if DATABASE_URL else row["destination"]
+        row_note = row[4] if DATABASE_URL else row["note"]
+        row_image_names = row[5] if DATABASE_URL else row["image_names"]
+        row_original_names = row[6] if DATABASE_URL else row["original_names"]
+        trip_date_value = row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date)
+        image_names = row_image_names.split("||") if row_image_names else []
+        original_names = row_original_names.split("||") if row_original_names else []
         images = [
             {
                 "file_name": file_name,
@@ -172,11 +247,11 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
         ]
         trips.append(
             {
-                "id": row["id"],
-                "trip_date": row["trip_date"],
-                "origin": row["origin"],
-                "destination": row["destination"],
-                "note": row["note"],
+                "id": row_id,
+                "trip_date": trip_date_value,
+                "origin": row_origin,
+                "destination": row_destination,
+                "note": row_note,
                 "images": images,
             }
         )
@@ -236,23 +311,45 @@ def create_trip():
         return redirect(url_for("index", month=trip_date[:7]))
 
     db = get_db()
-    cursor = db.execute(
-        """
-        INSERT INTO trips (trip_date, origin, destination, note, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (trip_date, origin, destination, note, datetime.utcnow().isoformat()),
-    )
-    trip_id = cursor.lastrowid
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO trips (trip_date, origin, destination, note, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (trip_date, origin, destination, note, datetime.utcnow()),
+            )
+            trip_id = cursor.fetchone()[0]
+    else:
+        cursor = db.execute(
+            """
+            INSERT INTO trips (trip_date, origin, destination, note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (trip_date, origin, destination, note, datetime.utcnow().isoformat()),
+        )
+        trip_id = cursor.lastrowid
 
     if saved_images:
-        db.executemany(
-            """
-            INSERT INTO trip_images (trip_id, file_name, original_name)
-            VALUES (?, ?, ?)
-            """,
-            [(trip_id, file_name, original_name) for file_name, original_name in saved_images],
-        )
+        if DATABASE_URL:
+            with db.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO trip_images (trip_id, file_name, original_name)
+                    VALUES (%s, %s, %s)
+                    """,
+                    [(trip_id, file_name, original_name) for file_name, original_name in saved_images],
+                )
+        else:
+            db.executemany(
+                """
+                INSERT INTO trip_images (trip_id, file_name, original_name)
+                VALUES (?, ?, ?)
+                """,
+                [(trip_id, file_name, original_name) for file_name, original_name in saved_images],
+            )
 
     db.commit()
     flash("บันทึกงานวิ่งเรียบร้อยแล้ว", "success")
@@ -262,13 +359,21 @@ def create_trip():
 @app.route("/trips/<int:trip_id>/delete", methods=["POST"])
 def delete_trip(trip_id: int):
     db = get_db()
-    images = db.execute("SELECT file_name FROM trip_images WHERE trip_id = ?", (trip_id,)).fetchall()
-    db.execute("DELETE FROM trip_images WHERE trip_id = ?", (trip_id,))
-    db.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute("SELECT file_name FROM trip_images WHERE trip_id = %s", (trip_id,))
+            images = cursor.fetchall()
+            cursor.execute("DELETE FROM trip_images WHERE trip_id = %s", (trip_id,))
+            cursor.execute("DELETE FROM trips WHERE id = %s", (trip_id,))
+    else:
+        images = db.execute("SELECT file_name FROM trip_images WHERE trip_id = ?", (trip_id,)).fetchall()
+        db.execute("DELETE FROM trip_images WHERE trip_id = ?", (trip_id,))
+        db.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
     db.commit()
 
     for image in images:
-        image_path = UPLOAD_DIR / image["file_name"]
+        file_name = image[0] if DATABASE_URL else image["file_name"]
+        image_path = UPLOAD_DIR / file_name
         if image_path.exists():
             image_path.unlink()
 
