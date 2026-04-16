@@ -6,125 +6,214 @@
     <title>My Transport</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
+
+    <div class="bg-mesh" aria-hidden="true"></div>
+
     <div class="shell">
+
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Transport logbook</p>
-          <h1>My Transport</h1>
-          <p class="subtle">บันทึกงานวิ่งรถรายวัน พร้อมสรุปรายเดือนเป็น PDF</p>
+        <div class="brand">
+          <div class="brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 56 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="0" y="7" width="34" height="20" rx="2.5" fill="currentColor" opacity="0.85"/>
+              <path d="M34 11.5h9.5L50 20v7H34V11.5z" fill="currentColor" opacity="0.9"/>
+              <rect x="3" y="10" width="13" height="10" rx="1.5" fill="#090703" opacity="0.5"/>
+              <rect x="36" y="14" width="8" height="7" rx="1" fill="#090703" opacity="0.45"/>
+              <circle cx="9"  cy="29" r="4" fill="#090703" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="25" cy="29" r="4" fill="#090703" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="43" cy="29" r="4" fill="#090703" stroke="currentColor" stroke-width="1.8"/>
+              <line x1="34" y1="19" x2="50" y2="19" stroke="#090703" stroke-width="1" opacity="0.3"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="eyebrow">Transport Logbook</span>
+            <h1>My Transport</h1>
+            <p class="brand-sub">บันทึกงานวิ่งรถรายวัน · สรุปรายเดือนเป็น PDF</p>
+          </div>
         </div>
-        <a class="ghost-button" href="{{ url_for('export_monthly_pdf', month=selected_month) }}">Export PDF</a>
+        <a class="export-btn" href="{{ url_for('export_monthly_pdf', month=selected_month) }}">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
+            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+          Export PDF
+        </a>
       </header>
 
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-          <section class="flash-stack">
+          <div class="flash-stack">
             {% for category, message in messages %}
-              <div class="flash {{ category }}">{{ message }}</div>
+              <div class="flash {{ category }}">
+                {% if category == 'success' %}
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                {% else %}
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+                {% endif %}
+                {{ message }}
+              </div>
             {% endfor %}
-          </section>
+          </div>
         {% endif %}
       {% endwith %}
 
-      <main class="mobile-grid">
-        <section class="panel hero-panel">
-          <div class="summary-grid">
-            <article>
-              <span>งานวิ่ง</span>
-              <strong>{{ summary.count }}</strong>
-            </article>
-            <article>
-              <span>จำนวนวัน</span>
-              <strong>{{ summary.days }}</strong>
-            </article>
-            <article>
-              <span>รูปแนบ</span>
-              <strong>{{ summary.attachments }}</strong>
-            </article>
+      <main class="layout">
+
+        <!-- ── Left: stats + form ─────────────────────────────── -->
+        <aside class="form-col">
+
+          <div class="stats-row">
+            <div class="stat-card">
+              <span class="stat-label">งานวิ่ง</span>
+              <strong class="stat-value">{{ summary.count }}</strong>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">จำนวนวัน</span>
+              <strong class="stat-value">{{ summary.days }}</strong>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">รูปแนบ</span>
+              <strong class="stat-value">{{ summary.attachments }}</strong>
+            </div>
           </div>
 
-          <form class="trip-form" action="{{ url_for('create_trip') }}" method="post" enctype="multipart/form-data">
-            <div class="field">
-              <label for="trip_date">วันที่</label>
-              <input id="trip_date" name="trip_date" type="date" value="{{ today }}" required>
+          <div class="form-card">
+            <div class="form-card-head">
+              <span class="form-head-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><path d="M8 2a1 1 0 011 1v4h4a1 1 0 010 2H9v4a1 1 0 01-2 0V9H3a1 1 0 010-2h4V3a1 1 0 011-1z"/></svg>
+              </span>
+              <h2>บันทึกงานวิ่ง</h2>
             </div>
 
-            <div class="field">
-              <label for="origin">จาก</label>
-              <input id="origin" name="origin" type="text" placeholder="เช่น นครปฐม" required>
-            </div>
+            <form class="trip-form" action="{{ url_for('create_trip') }}" method="post" enctype="multipart/form-data">
 
-            <div class="field">
-              <label for="destination">ไป</label>
-              <input id="destination" name="destination" type="text" placeholder="เช่น แหลมฉบัง" required>
-            </div>
+              <div class="field">
+                <label for="trip_date">วันที่</label>
+                <input id="trip_date" name="trip_date" type="date" value="{{ today }}" required>
+              </div>
 
-            <div class="field">
-              <label for="note">หมายเหตุ</label>
-              <textarea id="note" name="note" rows="4" placeholder="ลูกค้า, ทะเบียน, เวลานัด, ค่าใช้จ่าย หรือรายละเอียดเพิ่มเติม"></textarea>
-            </div>
+              <div class="route-row">
+                <div class="field">
+                  <label for="origin">จาก</label>
+                  <input id="origin" name="origin" type="text" placeholder="เช่น นครปฐม" required>
+                </div>
+                <div class="route-divider" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </div>
+                <div class="field">
+                  <label for="destination">ไป</label>
+                  <input id="destination" name="destination" type="text" placeholder="เช่น แหลมฉบัง" required>
+                </div>
+              </div>
 
-            <div class="field">
-              <label for="images">แนบรูปเพิ่มเติม</label>
-              <input id="images" name="images" type="file" accept="image/*" multiple>
-            </div>
+              <div class="field">
+                <label for="note">หมายเหตุ</label>
+                <textarea id="note" name="note" rows="3" placeholder="ลูกค้า · ทะเบียน · เวลานัด · ค่าใช้จ่าย"></textarea>
+              </div>
 
-            <button class="primary-button" type="submit">บันทึกงานวิ่ง</button>
-          </form>
-        </section>
+              <div class="field">
+                <label>แนบรูป</label>
+                <label for="images" class="file-zone" id="file-zone-label">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>
+                  </svg>
+                  <span id="file-zone-text">เลือกรูปภาพ</span>
+                </label>
+                <input id="images" name="images" type="file" accept="image/*" multiple class="sr-only">
+              </div>
 
-        <section class="panel list-panel">
-          <div class="section-head">
+              <button class="submit-btn" type="submit">
+                บันทึกงานวิ่ง
+              </button>
+
+            </form>
+          </div>
+        </aside>
+
+        <!-- ── Right: trip list ──────────────────────────────── -->
+        <section class="list-col">
+
+          <div class="list-head">
             <div>
-              <p class="eyebrow">Monthly view</p>
-              <h2>รายการประจำเดือน</h2>
+              <span class="eyebrow">Monthly view</span>
+              <h2 class="list-title">รายการประจำเดือน</h2>
             </div>
-            <form method="get" class="month-picker">
-              <input type="month" name="month" value="{{ selected_month }}" onchange="this.form.submit()">
+            <form method="get" class="month-form">
+              <input type="month" name="month" value="{{ selected_month }}" onchange="this.form.submit()" class="month-input">
             </form>
           </div>
 
           {% if trips %}
-            <div class="trip-list">
+            <ol class="timeline" reversed>
               {% for trip in trips %}
-                <article class="trip-item">
-                  <div class="trip-main">
-                    <div class="trip-line">
-                      <span class="trip-date">{{ trip.trip_date }}</span>
+                <li class="tl-item">
+                  <span class="tl-dot" aria-hidden="true"></span>
+                  <div class="tl-card">
+                    <div class="tl-bar">
+                      <time class="tl-date">{{ trip.trip_date }}</time>
                       <form action="{{ url_for('delete_trip', trip_id=trip.id, month=selected_month) }}" method="post">
-                        <button class="delete-button" type="submit">ลบ</button>
+                        <button class="del-btn" type="submit" title="ลบรายการนี้">
+                          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                          <span class="sr-only">ลบ</span>
+                        </button>
                       </form>
                     </div>
-                    <h3>{{ trip.origin }} <span>→</span> {{ trip.destination }}</h3>
+                    <div class="tl-route">
+                      <span class="tl-place origin">{{ trip.origin }}</span>
+                      <span class="tl-connector" aria-hidden="true">
+                        <span class="tl-rail"></span>
+                        <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M8.293 2.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L10.586 9H3a1 1 0 010-2h7.586L8.293 3.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                      </span>
+                      <span class="tl-place dest">{{ trip.destination }}</span>
+                    </div>
                     {% if trip.note %}
-                      <p class="trip-note">{{ trip.note }}</p>
+                      <p class="tl-note">{{ trip.note }}</p>
+                    {% endif %}
+                    {% if trip.images %}
+                      <div class="photo-strip">
+                        {% for image in trip.images %}
+                          <a href="{{ image.url }}" target="_blank" rel="noreferrer" class="photo-thumb">
+                            <img src="{{ image.url }}" alt="{{ image.original_name }}" loading="lazy">
+                          </a>
+                        {% endfor %}
+                      </div>
                     {% endif %}
                   </div>
-
-                  {% if trip.images %}
-                    <div class="photo-strip">
-                      {% for image in trip.images %}
-                        <a href="{{ image.url }}" target="_blank" rel="noreferrer">
-                          <img src="{{ image.url }}" alt="{{ image.original_name }}">
-                        </a>
-                      {% endfor %}
-                    </div>
-                  {% endif %}
-                </article>
+                </li>
               {% endfor %}
-            </div>
+            </ol>
           {% else %}
             <div class="empty-state">
+              <span class="empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 56 36" fill="none" xmlns="http://www.w3.org/2000/svg" width="60" height="38">
+                  <rect x="0" y="7" width="34" height="20" rx="2.5" fill="currentColor" opacity="0.2"/>
+                  <path d="M34 11.5h9.5L50 20v7H34V11.5z" fill="currentColor" opacity="0.2"/>
+                  <circle cx="9"  cy="29" r="4" fill="transparent" stroke="currentColor" stroke-width="1.5" opacity="0.25"/>
+                  <circle cx="25" cy="29" r="4" fill="transparent" stroke="currentColor" stroke-width="1.5" opacity="0.25"/>
+                  <circle cx="43" cy="29" r="4" fill="transparent" stroke="currentColor" stroke-width="1.5" opacity="0.25"/>
+                </svg>
+              </span>
               <p>ยังไม่มีงานวิ่งในเดือนนี้</p>
-              <span>เริ่มเพิ่มรายการแรกได้จากฟอร์มด้านบน</span>
+              <span>เริ่มเพิ่มรายการแรกได้จากฟอร์มด้านซ้าย</span>
             </div>
           {% endif %}
+
         </section>
       </main>
     </div>
+
+    <script>
+      const fileInput = document.getElementById('images');
+      const fileText  = document.getElementById('file-zone-text');
+      const fileZone  = document.getElementById('file-zone-label');
+      fileInput?.addEventListener('change', () => {
+        const n = fileInput.files.length;
+        fileText.textContent = n > 0 ? `เลือกแล้ว ${n} รูป` : 'เลือกรูปภาพ';
+        fileZone.classList.toggle('has-files', n > 0);
+      });
+    </script>
   </body>
 </html>
