@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Transport</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Transport logbook</p>
+          <h1>My Transport</h1>
+          <p class="subtle">บันทึกงานวิ่งรถรายวัน พร้อมสรุปรายเดือนเป็น PDF</p>
+        </div>
+        <a class="ghost-button" href="{{ url_for('export_monthly_pdf', month=selected_month) }}">Export PDF</a>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="flash-stack">
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <main class="mobile-grid">
+        <section class="panel hero-panel">
+          <div class="summary-grid">
+            <article>
+              <span>งานวิ่ง</span>
+              <strong>{{ summary.count }}</strong>
+            </article>
+            <article>
+              <span>จำนวนวัน</span>
+              <strong>{{ summary.days }}</strong>
+            </article>
+            <article>
+              <span>รูปแนบ</span>
+              <strong>{{ summary.attachments }}</strong>
+            </article>
+          </div>
+
+          <form class="trip-form" action="{{ url_for('create_trip') }}" method="post" enctype="multipart/form-data">
+            <div class="field">
+              <label for="trip_date">วันที่</label>
+              <input id="trip_date" name="trip_date" type="date" value="{{ today }}" required>
+            </div>
+
+            <div class="field">
+              <label for="origin">จาก</label>
+              <input id="origin" name="origin" type="text" placeholder="เช่น นครปฐม" required>
+            </div>
+
+            <div class="field">
+              <label for="destination">ไป</label>
+              <input id="destination" name="destination" type="text" placeholder="เช่น แหลมฉบัง" required>
+            </div>
+
+            <div class="field">
+              <label for="note">หมายเหตุ</label>
+              <textarea id="note" name="note" rows="4" placeholder="ลูกค้า, ทะเบียน, เวลานัด, ค่าใช้จ่าย หรือรายละเอียดเพิ่มเติม"></textarea>
+            </div>
+
+            <div class="field">
+              <label for="images">แนบรูปเพิ่มเติม</label>
+              <input id="images" name="images" type="file" accept="image/*" multiple>
+            </div>
+
+            <button class="primary-button" type="submit">บันทึกงานวิ่ง</button>
+          </form>
+        </section>
+
+        <section class="panel list-panel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Monthly view</p>
+              <h2>รายการประจำเดือน</h2>
+            </div>
+            <form method="get" class="month-picker">
+              <input type="month" name="month" value="{{ selected_month }}" onchange="this.form.submit()">
+            </form>
+          </div>
+
+          {% if trips %}
+            <div class="trip-list">
+              {% for trip in trips %}
+                <article class="trip-item">
+                  <div class="trip-main">
+                    <div class="trip-line">
+                      <span class="trip-date">{{ trip.trip_date }}</span>
+                      <form action="{{ url_for('delete_trip', trip_id=trip.id, month=selected_month) }}" method="post">
+                        <button class="delete-button" type="submit">ลบ</button>
+                      </form>
+                    </div>
+                    <h3>{{ trip.origin }} <span>→</span> {{ trip.destination }}</h3>
+                    {% if trip.note %}
+                      <p class="trip-note">{{ trip.note }}</p>
+                    {% endif %}
+                  </div>
+
+                  {% if trip.images %}
+                    <div class="photo-strip">
+                      {% for image in trip.images %}
+                        <a href="{{ image.url }}" target="_blank" rel="noreferrer">
+                          <img src="{{ image.url }}" alt="{{ image.original_name }}">
+                        </a>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">
+              <p>ยังไม่มีงานวิ่งในเดือนนี้</p>
+              <span>เริ่มเพิ่มรายการแรกได้จากฟอร์มด้านบน</span>
+            </div>
+          {% endif %}
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
