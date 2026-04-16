@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import tempfile
 import uuid
 from contextlib import closing
 from datetime import date, datetime
@@ -34,8 +35,13 @@ from werkzeug.utils import secure_filename
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "transport.db"
-UPLOAD_DIR = BASE_DIR / "static" / "uploads"
+RUNTIME_DIR = (
+    Path(tempfile.gettempdir()) / "my-transport"
+    if os.environ.get("VERCEL")
+    else BASE_DIR
+)
+DATABASE_PATH = RUNTIME_DIR / "transport.db"
+UPLOAD_DIR = RUNTIME_DIR / "uploads"
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -75,6 +81,7 @@ def close_db(_: object | None) -> None:
 
 
 def init_db() -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     if DATABASE_URL:
         with closing(psycopg.connect(DATABASE_URL)) as connection:
