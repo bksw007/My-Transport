@@ -10,6 +10,7 @@ Mobile-first web app for logging daily transport jobs with notes, image attachme
 - Export monthly summary as PDF
 - Dark premium UI tuned for phones first
 - Supports Supabase Postgres via `DATABASE_URL` or `SUPABASE_DB_URL`
+- Supports Supabase Storage for trip photo uploads when server keys are configured
 
 ## Local Run
 
@@ -25,19 +26,25 @@ Open `http://127.0.0.1:5000`
 
 1. Create a Supabase project
 2. Copy the pooled Postgres connection string
-3. Set one of these environment variables before starting the app:
+3. Copy your project URL and service role key from Supabase
+4. Set these environment variables before starting the app:
 
 ```bash
 export DATABASE_URL="postgresql://..."
+export SUPABASE_URL="https://your-project-ref.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+export SUPABASE_STORAGE_BUCKET="trip-images"
 ```
 
 or
 
 ```bash
 export SUPABASE_DB_URL="postgresql://..."
+export SUPABASE_URL="https://your-project-ref.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 ```
 
-When either variable is present, the app will use Supabase Postgres and auto-create the `trips` and `trip_images` tables on startup.
+When either database URL is present, the app will use Supabase Postgres. When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are also present, trip photos are uploaded to Supabase Storage bucket `trip-images`.
 
 ## Deploy
 
@@ -45,8 +52,8 @@ When either variable is present, the app will use Supabase Postgres and auto-cre
 vercel deploy -y
 ```
 
-For Vercel, add `DATABASE_URL` in the project environment variables before the next deploy.
+For Vercel, add `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in the project environment variables before the next deploy.
 
 ## Storage Note
 
-Trip data can now live in Supabase Postgres, but image uploads are still stored on the local filesystem in this version. On Vercel, filesystem uploads are not persistent, so the next upgrade should move images into Supabase Storage.
+If the Supabase Storage server keys are missing, the app falls back to local filesystem uploads. On Vercel, that fallback is not persistent, so production should always set the Supabase Storage variables.

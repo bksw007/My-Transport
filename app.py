@@ -6,6 +6,8 @@ import uuid
 from contextlib import closing
 from datetime import date, datetime
 from io import BytesIO
+from itertools import zip_longest
+from mimetypes import guess_type
 from pathlib import Path
 from typing import Iterable
 
@@ -27,6 +29,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from supabase import Client, create_client
 from werkzeug.utils import secure_filename
 
 
@@ -34,6 +37,9 @@ BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "transport.db"
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "trip-images")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 PDF_FONT_REGULAR = "Helvetica"
 PDF_FONT_BOLD = "Helvetica-Bold"
@@ -51,6 +57,14 @@ def get_db() -> sqlite3.Connection:
             g.db = sqlite3.connect(DATABASE_PATH)
             g.db.row_factory = sqlite3.Row
     return g.db
+
+
+def get_storage_client() -> Client | None:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return None
+    if "storage_client" not in g:
+        g.storage_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    return g.storage_client
 
 
 @app.teardown_appcontext
@@ -83,7 +97,10 @@ def init_db() -> None:
                         id BIGSERIAL PRIMARY KEY,
                         trip_id BIGINT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
                         file_name TEXT NOT NULL,
-                        original_name TEXT NOT NULL
+                        original_name TEXT NOT NULL,
+                        storage_path TEXT NOT NULL DEFAULT '',
+                        public_url TEXT NOT NULL DEFAULT '',
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                     """
                 )
@@ -95,6 +112,11 @@ def init_db() -> None:
                 cursor.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_trip_images_storage_path ON trip_images (storage_path)
                     """
                 )
             connection.commit()
@@ -120,8 +142,25 @@ def init_db() -> None:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_trips_trip_date ON trips (trip_date DESC);
-                CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id);
                 """
+            )
+            existing_columns = {
+                column_info[1]
+                for column_info in connection.execute("PRAGMA table_info(trip_images)").fetchall()
+            }
+            if "storage_path" not in existing_columns:
+                connection.execute(
+                    "ALTER TABLE trip_images ADD COLUMN storage_path TEXT NOT NULL DEFAULT ''"
+                )
+            if "public_url" not in existing_columns:
+                connection.execute(
+                    "ALTER TABLE trip_images ADD COLUMN public_url TEXT NOT NULL DEFAULT ''"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trip_images_storage_path ON trip_images (storage_path)"
             )
             connection.commit()
 
@@ -196,6 +235,8 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                     t.note,
                     COALESCE(STRING_AGG(i.file_name, '||' ORDER BY i.id), '') AS image_names,
                     COALESCE(STRING_AGG(i.original_name, '||' ORDER BY i.id), '') AS original_names
+                    ,
+                    COALESCE(STRING_AGG(i.public_url, '||' ORDER BY i.id), '') AS public_urls
                 FROM trips t
                 LEFT JOIN trip_images i ON i.trip_id = t.id
                 WHERE t.trip_date >= %s AND t.trip_date < %s
@@ -215,7 +256,8 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 t.destination,
                 t.note,
                 GROUP_CONCAT(i.file_name, '||') AS image_names,
-                GROUP_CONCAT(i.original_name, '||') AS original_names
+                GROUP_CONCAT(i.original_name, '||') AS original_names,
+                GROUP_CONCAT(i.public_url, '||') AS public_urls
             FROM trips t
             LEFT JOIN trip_images i ON i.trip_id = t.id
             WHERE t.trip_date >= ? AND t.trip_date < ?
@@ -234,16 +276,23 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
         row_note = row[4] if DATABASE_URL else row["note"]
         row_image_names = row[5] if DATABASE_URL else row["image_names"]
         row_original_names = row[6] if DATABASE_URL else row["original_names"]
+        row_public_urls = row[7] if DATABASE_URL else row["public_urls"]
         trip_date_value = row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date)
         image_names = row_image_names.split("||") if row_image_names else []
         original_names = row_original_names.split("||") if row_original_names else []
+        public_urls = row_public_urls.split("||") if row_public_urls else []
         images = [
             {
                 "file_name": file_name,
                 "original_name": original_name,
-                "url": url_for("static", filename=f"uploads/{file_name}"),
+                "url": public_url or url_for("static", filename=f"uploads/{file_name}"),
             }
-            for file_name, original_name in zip(image_names, original_names)
+            for file_name, original_name, public_url in zip_longest(
+                image_names,
+                original_names,
+                public_urls,
+                fillvalue="",
+            )
         ]
         trips.append(
             {
@@ -264,8 +313,9 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     return trips, summary
 
 
-def save_images(files: Iterable) -> list[tuple[str, str]]:
-    saved_images: list[tuple[str, str]] = []
+def save_images(files: Iterable) -> list[dict]:
+    saved_images: list[dict] = []
+    storage_client = get_storage_client()
     for image in files:
         if not image or not image.filename:
             continue
@@ -275,8 +325,30 @@ def save_images(files: Iterable) -> list[tuple[str, str]]:
         original_name = secure_filename(image.filename)
         suffix = Path(original_name).suffix.lower()
         generated_name = f"{uuid.uuid4().hex}{suffix}"
-        image.save(UPLOAD_DIR / generated_name)
-        saved_images.append((generated_name, original_name))
+        content_type = image.mimetype or guess_type(original_name)[0] or "application/octet-stream"
+
+        if storage_client:
+            storage_path = f"trip-images/{generated_name}"
+            upload_payload = image.stream.read()
+            storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+                storage_path,
+                upload_payload,
+                {"content-type": content_type},
+            )
+            public_url = storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).get_public_url(storage_path)
+        else:
+            storage_path = generated_name
+            image.save(UPLOAD_DIR / generated_name)
+            public_url = url_for("static", filename=f"uploads/{generated_name}")
+
+        saved_images.append(
+            {
+                "file_name": generated_name,
+                "original_name": original_name,
+                "storage_path": storage_path,
+                "public_url": public_url,
+            }
+        )
     return saved_images
 
 
@@ -337,18 +409,36 @@ def create_trip():
             with db.cursor() as cursor:
                 cursor.executemany(
                     """
-                    INSERT INTO trip_images (trip_id, file_name, original_name)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
+                    VALUES (%s, %s, %s, %s, %s)
                     """,
-                    [(trip_id, file_name, original_name) for file_name, original_name in saved_images],
+                    [
+                        (
+                            trip_id,
+                            image_record["file_name"],
+                            image_record["original_name"],
+                            image_record["storage_path"],
+                            image_record["public_url"],
+                        )
+                        for image_record in saved_images
+                    ],
                 )
         else:
             db.executemany(
                 """
-                INSERT INTO trip_images (trip_id, file_name, original_name)
-                VALUES (?, ?, ?)
+                INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                [(trip_id, file_name, original_name) for file_name, original_name in saved_images],
+                [
+                    (
+                        trip_id,
+                        image_record["file_name"],
+                        image_record["original_name"],
+                        image_record["storage_path"],
+                        image_record["public_url"],
+                    )
+                    for image_record in saved_images
+                ],
             )
 
     db.commit()
@@ -361,21 +451,31 @@ def delete_trip(trip_id: int):
     db = get_db()
     if DATABASE_URL:
         with db.cursor() as cursor:
-            cursor.execute("SELECT file_name FROM trip_images WHERE trip_id = %s", (trip_id,))
+            cursor.execute("SELECT file_name, storage_path FROM trip_images WHERE trip_id = %s", (trip_id,))
             images = cursor.fetchall()
             cursor.execute("DELETE FROM trip_images WHERE trip_id = %s", (trip_id,))
             cursor.execute("DELETE FROM trips WHERE id = %s", (trip_id,))
     else:
-        images = db.execute("SELECT file_name FROM trip_images WHERE trip_id = ?", (trip_id,)).fetchall()
+        images = db.execute(
+            "SELECT file_name, storage_path FROM trip_images WHERE trip_id = ?",
+            (trip_id,),
+        ).fetchall()
         db.execute("DELETE FROM trip_images WHERE trip_id = ?", (trip_id,))
         db.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
     db.commit()
 
+    storage_client = get_storage_client()
+    storage_paths = []
     for image in images:
         file_name = image[0] if DATABASE_URL else image["file_name"]
+        storage_path = image[1] if DATABASE_URL else image["storage_path"]
+        storage_paths.append(storage_path)
         image_path = UPLOAD_DIR / file_name
         if image_path.exists():
             image_path.unlink()
+
+    if storage_client and storage_paths:
+        storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).remove(storage_paths)
 
     flash("ลบรายการแล้ว", "success")
     return redirect(url_for("index", month=request.args.get("month")))
