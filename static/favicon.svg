@@ -4,25 +4,35 @@
       <stop offset="0%" stop-color="#FF6820"/>
       <stop offset="100%" stop-color="#FF0D00"/>
     </linearGradient>
+    <linearGradient id="redTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF2E1A"/>
+      <stop offset="100%" stop-color="#C00000"/>
+    </linearGradient>
+    <linearGradient id="orTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF7A1A"/>
+      <stop offset="100%" stop-color="#FF3300"/>
+    </linearGradient>
     <clipPath id="card">
-      <rect x="66" y="66" width="380" height="380" rx="68"/>
+      <rect x="66" y="66" width="380" height="380" rx="74"/>
     </clipPath>
   </defs>
 
-  <!-- Outer rounded square: orange-red gradient -->
-  <rect width="512" height="512" rx="110" fill="url(#bg)"/>
+  <!-- Outer rounded square -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- White card -->
+  <rect x="66" y="66" width="380" height="380" rx="74" fill="#fff"/>
 
-  <!-- White inner card (square, centered) -->
-  <rect x="66" y="66" width="380" height="380" rx="68" fill="#fff"/>
-
-  <!-- Chevrons clipped inside card -->
   <g clip-path="url(#card)">
-    <!-- Back chevron: face (bright red) + fold strip (dark red) -->
-    <polygon points="126,150 272,256 126,362"               fill="#E00000"/>
-    <polygon points="170,150 126,150 126,362 170,362 216,256" fill="#960000"/>
+    <!-- BACK chevron (upper-left, red) -->
+    <!-- face: outer triangle minus inner notch -->
+    <polygon points="128,130 268,230 128,330 128,282 200,230 128,178"
+             fill="url(#redTop)"/>
+    <!-- fold strip along the left vertical edge (darker) -->
+    <polygon points="128,130 168,154 168,306 128,330" fill="#7A0000"/>
 
-    <!-- Front chevron: face (orange-red) + fold strip (dark orange) -->
-    <polygon points="210,150 356,256 210,362"               fill="#FF5200"/>
-    <polygon points="254,150 210,150 210,362 254,362 300,256" fill="#CB2000"/>
+    <!-- FRONT chevron (lower-right, orange) -->
+    <polygon points="228,182 368,282 228,382 228,334 300,282 228,230"
+             fill="url(#orTop)"/>
+    <polygon points="228,182 268,206 268,358 228,382" fill="#B02500"/>
   </g>
 </svg>
