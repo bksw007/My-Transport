@@ -701,7 +701,7 @@ def export_monthly_pdf():
     )
     styles = getSampleStyleSheet()
     title_style = styles["Title"]
-    title_style.textColor = colors.HexColor("#f5f7ff")
+    title_style.textColor = colors.HexColor("#111111")
     title_style.fontName = PDF_FONT_BOLD
 
     body_style = ParagraphStyle(
@@ -710,7 +710,7 @@ def export_monthly_pdf():
         fontName=PDF_FONT_REGULAR,
         fontSize=10,
         leading=15,
-        textColor=colors.HexColor("#d7dbef"),
+        textColor=colors.HexColor("#333333"),
     )
 
     story = [
@@ -719,31 +719,32 @@ def export_monthly_pdf():
         Paragraph(f"สรุปรายเดือน {month_label}", body_style),
         Spacer(1, 10),
         Paragraph(
-            f"จำนวนงานวิ่ง {summary['count']} | จำนวนวัน {summary['days']} | รูปแนบ {summary['attachments']}",
+            f"จำนวนงานวิ่ง {summary['count']} | จำนวนวัน {summary['days']}",
             body_style,
         ),
         Spacer(1, 14),
     ]
 
-    table_data = [["วันที่", "เส้นทาง", "งานของ", "หมายเหตุ", "รูป"]]
+    table_data = [["วันที่", "จาก", "ไป", "หมายเหตุ"]]
     for trip in sorted(trips, key=lambda item: item["trip_date"]):
-        route = f"{trip['origin']} -> {trip['destination']}"
-        owner = trip["owner"] or "-"
         note = trip["note"] or "-"
-        table_data.append([trip["trip_date"], route, owner, note, str(len(trip["images"]))])
+        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], note])
 
     if len(table_data) == 1:
-        table_data.append(["-", "-", "-", "ยังไม่มีรายการในเดือนนี้", "0"])
+        table_data.append(["-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
 
-    table = Table(table_data, colWidths=[26 * mm, 50 * mm, 30 * mm, 53 * mm, 20 * mm], repeatRows=1)
+    table = Table(
+        table_data,
+        colWidths=[28 * mm, 50 * mm, 50 * mm, 54 * mm],
+        repeatRows=1,
+    )
     table.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#151a28")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#0d111b")),
-                ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#d7dbef")),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#2c344b")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f2f2f2")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#111111")),
+                ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#222222")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#bbbbbb")),
                 ("FONTNAME", (0, 0), (-1, 0), PDF_FONT_BOLD),
                 ("FONTNAME", (0, 1), (-1, -1), PDF_FONT_REGULAR),
                 ("FONTSIZE", (0, 0), (-1, -1), 9),
@@ -756,11 +757,7 @@ def export_monthly_pdf():
     )
     story.append(table)
 
-    doc.build(
-        story,
-        onFirstPage=_paint_pdf_background,
-        onLaterPages=_paint_pdf_background,
-    )
+    doc.build(story)
     pdf_buffer.seek(0)
     return send_file(
         pdf_buffer,
@@ -768,13 +765,6 @@ def export_monthly_pdf():
         download_name=f"my-transport-{selected_month}.pdf",
         mimetype="application/pdf",
     )
-
-
-def _paint_pdf_background(canvas, doc) -> None:  # type: ignore[no-untyped-def]
-    canvas.saveState()
-    canvas.setFillColor(colors.HexColor("#090b11"))
-    canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
-    canvas.restoreState()
 
 
 @app.route("/api/suggestions/<field>", methods=["GET"])
