@@ -526,26 +526,42 @@ h1 {
   border: 1px solid rgba(201,169,107,0.18);
 }
 
-.del-btn {
+.tl-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.tl-act-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border: 1px solid transparent;
   border-radius: var(--r-sm);
   background: transparent;
   color: var(--dim);
   cursor: pointer;
-  transition: background 180ms, border-color 180ms, color 180ms;
+  transition: background 160ms, border-color 160ms, color 160ms;
   flex-shrink: 0;
 }
 
-.del-btn:hover {
+.tl-act-btn--edit:hover {
+  background: var(--gold-glow);
+  border-color: var(--border-hi);
+  color: var(--gold);
+}
+
+.tl-act-btn--del:hover {
   background: var(--danger-dim);
   border-color: rgba(217,96,96,0.24);
   color: #f5a0a0;
 }
+
+/* keep old del-btn selector working for JS modal targeting */
+.del-btn { background: transparent; border: none; }
 
 /* Route display */
 .tl-route {
@@ -1119,4 +1135,92 @@ h1 {
   }
 
   .timeline { padding-left: 26px; }
+}
+
+/* ── Date input: dark theme + gold calendar icon ────────────────── */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px;
+  opacity: 0.6;
+  /* gold tint: invert → white, add warm sepia tone */
+  filter: invert(1) sepia(0.6) saturate(2.5) hue-rotate(5deg) brightness(0.95);
+  transition: opacity 150ms, filter 150ms;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  filter: invert(1) sepia(0.9) saturate(3.5) hue-rotate(5deg) brightness(1.05);
+}
+
+/* ── Modal edit form ────────────────────────────────────────────── */
+.modal-form-box {
+  width: min(520px, 100%);
+  text-align: left;
+  gap: 0;
+}
+
+.modal-form { display: grid; gap: 14px; }
+
+.mf-field { display: grid; gap: 6px; }
+
+.mf-label {
+  font-family: 'Kanit', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mf-input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid rgba(201,169,107,0.16);
+  border-radius: var(--r-sm);
+  background: rgba(9,7,3,0.7);
+  color: var(--text);
+  font-family: 'Sarabun', sans-serif;
+  font-size: 0.93rem;
+  outline: none;
+  transition: border-color 160ms, box-shadow 160ms;
+  color-scheme: dark;
+}
+
+.mf-input:focus {
+  border-color: rgba(201,169,107,0.48);
+  box-shadow: 0 0 0 3px rgba(201,169,107,0.08);
+}
+
+.mf-textarea { resize: vertical; min-height: 70px; line-height: 1.55; }
+
+.mf-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 8px;
+}
+
+.mf-arrow {
+  color: var(--gold);
+  opacity: 0.8;
+  padding-bottom: 12px;
+  font-size: 1rem;
+  text-align: center;
+}
+
+/* Save button variant */
+.modal-btn--save {
+  background: linear-gradient(135deg, #c09050, var(--gold-hi));
+  border: none;
+  color: #1a1200;
+  font-weight: 700;
+}
+
+.modal-btn--save:hover {
+  box-shadow: 0 4px 18px rgba(201,169,107,0.3);
 }

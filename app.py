@@ -507,6 +507,44 @@ def create_trip():
     return redirect(url_for("index", month=trip_date[:7]))
 
 
+@app.route("/trips/<int:trip_id>/edit", methods=["POST"])
+def update_trip(trip_id: int):
+    trip_date   = request.form.get("trip_date",   "").strip()
+    origin      = request.form.get("origin",      "").strip()
+    destination = request.form.get("destination", "").strip()
+    owner       = request.form.get("owner",       "").strip()
+    note        = request.form.get("note",        "").strip()
+    month       = request.form.get("month",       "").strip()
+
+    if not trip_date or not origin or not destination:
+        flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
+        return redirect(url_for("index", month=month or None))
+
+    db = get_db()
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE trips
+                SET trip_date=%s, origin=%s, destination=%s, owner=%s, note=%s
+                WHERE id=%s
+                """,
+                (trip_date, origin, destination, owner, note, trip_id),
+            )
+    else:
+        db.execute(
+            """
+            UPDATE trips
+            SET trip_date=?, origin=?, destination=?, owner=?, note=?
+            WHERE id=?
+            """,
+            (trip_date, origin, destination, owner, note, trip_id),
+        )
+    db.commit()
+    flash("แก้ไขรายการเรียบร้อยแล้ว", "success")
+    return redirect(url_for("index", month=month or trip_date[:7]))
+
+
 @app.route("/trips/<int:trip_id>/delete", methods=["POST"])
 def delete_trip(trip_id: int):
     db = get_db()
