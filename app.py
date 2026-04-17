@@ -16,6 +16,7 @@ from flask import (
     Flask,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -47,6 +48,7 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "trip-images")
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
+VALID_SUGGESTION_FIELDS = {"origin", "destination", "owner"}
 PDF_FONT_REGULAR = "Helvetica"
 PDF_FONT_BOLD = "Helvetica-Bold"
 
@@ -94,8 +96,14 @@ def init_db() -> None:
                         origin TEXT NOT NULL,
                         destination TEXT NOT NULL,
                         note TEXT DEFAULT '',
+                        owner TEXT DEFAULT '',
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS owner TEXT DEFAULT ''
                     """
                 )
                 cursor.execute(
@@ -126,6 +134,22 @@ def init_db() -> None:
                     CREATE INDEX IF NOT EXISTS idx_trip_images_storage_path ON trip_images (storage_path)
                     """
                 )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS suggestions (
+                        id BIGSERIAL PRIMARY KEY,
+                        field TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        UNIQUE (field, value)
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_suggestions_field ON suggestions (field)
+                    """
+                )
             connection.commit()
     else:
         with closing(sqlite3.connect(DATABASE_PATH)) as connection:
@@ -137,6 +161,7 @@ def init_db() -> None:
                     origin TEXT NOT NULL,
                     destination TEXT NOT NULL,
                     note TEXT DEFAULT '',
+                    owner TEXT DEFAULT '',
                     created_at TEXT NOT NULL
                 );
 
@@ -155,6 +180,10 @@ def init_db() -> None:
                 column_info[1]
                 for column_info in connection.execute("PRAGMA table_info(trip_images)").fetchall()
             }
+            if "owner" not in existing_columns:
+                connection.execute(
+                    "ALTER TABLE trips ADD COLUMN owner TEXT NOT NULL DEFAULT ''"
+                )
             if "storage_path" not in existing_columns:
                 connection.execute(
                     "ALTER TABLE trip_images ADD COLUMN storage_path TEXT NOT NULL DEFAULT ''"
@@ -169,6 +198,27 @@ def init_db() -> None:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trip_images_storage_path ON trip_images (storage_path)"
             )
+            existing_tables = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "suggestions" not in existing_tables:
+                connection.execute(
+                    """
+                    CREATE TABLE suggestions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        field TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE (field, value)
+                    )
+                    """
+                )
+                connection.execute(
+                    "CREATE INDEX idx_suggestions_field ON suggestions (field)"
+                )
             connection.commit()
 
 
@@ -240,9 +290,9 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                     t.origin,
                     t.destination,
                     t.note,
+                    t.owner,
                     COALESCE(STRING_AGG(i.file_name, '||' ORDER BY i.id), '') AS image_names,
-                    COALESCE(STRING_AGG(i.original_name, '||' ORDER BY i.id), '') AS original_names
-                    ,
+                    COALESCE(STRING_AGG(i.original_name, '||' ORDER BY i.id), '') AS original_names,
                     COALESCE(STRING_AGG(i.public_url, '||' ORDER BY i.id), '') AS public_urls
                 FROM trips t
                 LEFT JOIN trip_images i ON i.trip_id = t.id
@@ -262,6 +312,7 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 t.origin,
                 t.destination,
                 t.note,
+                t.owner,
                 GROUP_CONCAT(i.file_name, '||') AS image_names,
                 GROUP_CONCAT(i.original_name, '||') AS original_names,
                 GROUP_CONCAT(i.public_url, '||') AS public_urls
@@ -281,9 +332,10 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
         row_origin = row[2] if DATABASE_URL else row["origin"]
         row_destination = row[3] if DATABASE_URL else row["destination"]
         row_note = row[4] if DATABASE_URL else row["note"]
-        row_image_names = row[5] if DATABASE_URL else row["image_names"]
-        row_original_names = row[6] if DATABASE_URL else row["original_names"]
-        row_public_urls = row[7] if DATABASE_URL else row["public_urls"]
+        row_owner = row[5] if DATABASE_URL else row["owner"]
+        row_image_names = row[6] if DATABASE_URL else row["image_names"]
+        row_original_names = row[7] if DATABASE_URL else row["original_names"]
+        row_public_urls = row[8] if DATABASE_URL else row["public_urls"]
         trip_date_value = row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date)
         image_names = row_image_names.split("||") if row_image_names else []
         original_names = row_original_names.split("||") if row_original_names else []
@@ -308,6 +360,7 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 "origin": row_origin,
                 "destination": row_destination,
                 "note": row_note,
+                "owner": row_owner,
                 "images": images,
             }
         )
@@ -378,6 +431,7 @@ def create_trip():
     origin = request.form.get("origin", "").strip()
     destination = request.form.get("destination", "").strip()
     note = request.form.get("note", "").strip()
+    owner = request.form.get("owner", "").strip()
 
     if not trip_date or not origin or not destination:
         flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
@@ -394,20 +448,20 @@ def create_trip():
         with db.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO trips (trip_date, origin, destination, note, created_at)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO trips (trip_date, origin, destination, note, owner, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (trip_date, origin, destination, note, datetime.utcnow()),
+                (trip_date, origin, destination, note, owner, datetime.utcnow()),
             )
             trip_id = cursor.fetchone()[0]
     else:
         cursor = db.execute(
             """
-            INSERT INTO trips (trip_date, origin, destination, note, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO trips (trip_date, origin, destination, note, owner, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (trip_date, origin, destination, note, datetime.utcnow().isoformat()),
+            (trip_date, origin, destination, note, owner, datetime.utcnow().isoformat()),
         )
         trip_id = cursor.lastrowid
 
@@ -529,16 +583,17 @@ def export_monthly_pdf():
         Spacer(1, 14),
     ]
 
-    table_data = [["วันที่", "เส้นทาง", "หมายเหตุ", "รูป"]]
+    table_data = [["วันที่", "เส้นทาง", "งานของ", "หมายเหตุ", "รูป"]]
     for trip in sorted(trips, key=lambda item: item["trip_date"]):
         route = f"{trip['origin']} -> {trip['destination']}"
+        owner = trip["owner"] or "-"
         note = trip["note"] or "-"
-        table_data.append([trip["trip_date"], route, note, str(len(trip["images"]))])
+        table_data.append([trip["trip_date"], route, owner, note, str(len(trip["images"]))])
 
     if len(table_data) == 1:
-        table_data.append(["-", "-", "ยังไม่มีรายการในเดือนนี้", "0"])
+        table_data.append(["-", "-", "-", "ยังไม่มีรายการในเดือนนี้", "0"])
 
-    table = Table(table_data, colWidths=[26 * mm, 55 * mm, 78 * mm, 20 * mm], repeatRows=1)
+    table = Table(table_data, colWidths=[26 * mm, 50 * mm, 30 * mm, 53 * mm, 20 * mm], repeatRows=1)
     table.setStyle(
         TableStyle(
             [
@@ -578,6 +633,116 @@ def _paint_pdf_background(canvas, doc) -> None:  # type: ignore[no-untyped-def]
     canvas.setFillColor(colors.HexColor("#090b11"))
     canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
     canvas.restoreState()
+
+
+@app.route("/api/suggestions/<field>", methods=["GET"])
+def get_suggestions(field: str):
+    if field not in VALID_SUGGESTION_FIELDS:
+        return jsonify({"error": "invalid field"}), 400
+    db = get_db()
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, value FROM suggestions WHERE field = %s ORDER BY value ASC",
+                (field,),
+            )
+            rows = cursor.fetchall()
+        return jsonify([{"id": r[0], "value": r[1]} for r in rows])
+    else:
+        rows = db.execute(
+            "SELECT id, value FROM suggestions WHERE field = ? ORDER BY value ASC",
+            (field,),
+        ).fetchall()
+        return jsonify([{"id": r["id"], "value": r["value"]} for r in rows])
+
+
+@app.route("/api/suggestions/<field>", methods=["POST"])
+def add_suggestion(field: str):
+    if field not in VALID_SUGGESTION_FIELDS:
+        return jsonify({"error": "invalid field"}), 400
+    value = (request.get_json(silent=True) or {}).get("value", "").strip()
+    if not value:
+        return jsonify({"error": "value required"}), 400
+    db = get_db()
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO suggestions (field, value, created_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (field, value) DO NOTHING
+                RETURNING id
+                """,
+                (field, value, datetime.utcnow()),
+            )
+            row = cursor.fetchone()
+            if row:
+                suggestion_id = row[0]
+            else:
+                cursor.execute(
+                    "SELECT id FROM suggestions WHERE field = %s AND value = %s",
+                    (field, value),
+                )
+                suggestion_id = cursor.fetchone()[0]
+        db.commit()
+    else:
+        try:
+            cursor = db.execute(
+                "INSERT INTO suggestions (field, value, created_at) VALUES (?, ?, ?)",
+                (field, value, datetime.utcnow().isoformat()),
+            )
+            suggestion_id = cursor.lastrowid
+            db.commit()
+        except sqlite3.IntegrityError:
+            row = db.execute(
+                "SELECT id FROM suggestions WHERE field = ? AND value = ?",
+                (field, value),
+            ).fetchone()
+            suggestion_id = row["id"]
+    return jsonify({"id": suggestion_id, "value": value})
+
+
+@app.route("/api/suggestions/<field>/<int:suggestion_id>", methods=["PUT"])
+def update_suggestion(field: str, suggestion_id: int):
+    if field not in VALID_SUGGESTION_FIELDS:
+        return jsonify({"error": "invalid field"}), 400
+    value = (request.get_json(silent=True) or {}).get("value", "").strip()
+    if not value:
+        return jsonify({"error": "value required"}), 400
+    db = get_db()
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute(
+                "UPDATE suggestions SET value = %s WHERE id = %s AND field = %s",
+                (value, suggestion_id, field),
+            )
+    else:
+        db.execute(
+            "UPDATE suggestions SET value = ? WHERE id = ? AND field = ?",
+            (value, suggestion_id, field),
+        )
+    db.commit()
+    return jsonify({"id": suggestion_id, "value": value})
+
+
+@app.route("/api/suggestions/<field>/<int:suggestion_id>", methods=["DELETE"])
+def delete_suggestion(field: str, suggestion_id: int):
+    if field not in VALID_SUGGESTION_FIELDS:
+        return jsonify({"error": "invalid field"}), 400
+    db = get_db()
+    if DATABASE_URL:
+        with db.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM suggestions WHERE id = %s AND field = %s",
+                (suggestion_id, field),
+            )
+    else:
+        db.execute(
+            "DELETE FROM suggestions WHERE id = ? AND field = ?",
+            (suggestion_id, field),
+        )
+    db.commit()
+    return jsonify({"ok": True})
 
 
 init_db()
