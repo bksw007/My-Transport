@@ -293,7 +293,8 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                     t.owner,
                     COALESCE(STRING_AGG(i.file_name, '||' ORDER BY i.id), '') AS image_names,
                     COALESCE(STRING_AGG(i.original_name, '||' ORDER BY i.id), '') AS original_names,
-                    COALESCE(STRING_AGG(i.public_url, '||' ORDER BY i.id), '') AS public_urls
+                    COALESCE(STRING_AGG(i.public_url, '||' ORDER BY i.id), '') AS public_urls,
+                    COALESCE(STRING_AGG(i.id::text, '||' ORDER BY i.id), '') AS image_ids
                 FROM trips t
                 LEFT JOIN trip_images i ON i.trip_id = t.id
                 WHERE t.trip_date >= %s AND t.trip_date < %s
@@ -315,7 +316,8 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 t.owner,
                 GROUP_CONCAT(i.file_name, '||') AS image_names,
                 GROUP_CONCAT(i.original_name, '||') AS original_names,
-                GROUP_CONCAT(i.public_url, '||') AS public_urls
+                GROUP_CONCAT(i.public_url, '||') AS public_urls,
+                GROUP_CONCAT(i.id, '||') AS image_ids
             FROM trips t
             LEFT JOIN trip_images i ON i.trip_id = t.id
             WHERE t.trip_date >= ? AND t.trip_date < ?
@@ -336,17 +338,21 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
         row_image_names = row[6] if DATABASE_URL else row["image_names"]
         row_original_names = row[7] if DATABASE_URL else row["original_names"]
         row_public_urls = row[8] if DATABASE_URL else row["public_urls"]
+        row_image_ids = row[9] if DATABASE_URL else row["image_ids"]
         trip_date_value = row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date)
         image_names = row_image_names.split("||") if row_image_names else []
         original_names = row_original_names.split("||") if row_original_names else []
         public_urls = row_public_urls.split("||") if row_public_urls else []
+        image_ids = row_image_ids.split("||") if row_image_ids else []
         images = [
             {
+                "id": int(image_id) if image_id else None,
                 "file_name": file_name,
                 "original_name": original_name,
                 "url": public_url or url_for("static", filename=f"uploads/{file_name}"),
             }
-            for file_name, original_name, public_url in zip_longest(
+            for image_id, file_name, original_name, public_url in zip_longest(
+                image_ids,
                 image_names,
                 original_names,
                 public_urls,
@@ -520,6 +526,21 @@ def update_trip(trip_id: int):
         flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
         return redirect(url_for("index", month=month or None))
 
+    # ── parse image-delete ids (must belong to this trip) ──
+    delete_ids: list[int] = []
+    for raw in request.form.getlist("delete_image_ids"):
+        try:
+            delete_ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+
+    # ── save new images (may raise ValueError) ──
+    try:
+        new_images = save_images(request.files.getlist("images"))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index", month=month or trip_date[:7]))
+
     db = get_db()
     if DATABASE_URL:
         with db.cursor() as cursor:
@@ -540,7 +561,90 @@ def update_trip(trip_id: int):
             """,
             (trip_date, origin, destination, owner, note, trip_id),
         )
+
+    # ── delete selected images ──
+    removed_records: list[tuple[str, str]] = []   # (file_name, storage_path)
+    if delete_ids:
+        if DATABASE_URL:
+            with db.cursor() as cursor:
+                cursor.execute(
+                    "SELECT file_name, storage_path FROM trip_images "
+                    "WHERE trip_id = %s AND id = ANY(%s)",
+                    (trip_id, delete_ids),
+                )
+                removed_records = [(r[0], r[1]) for r in cursor.fetchall()]
+                cursor.execute(
+                    "DELETE FROM trip_images WHERE trip_id = %s AND id = ANY(%s)",
+                    (trip_id, delete_ids),
+                )
+        else:
+            placeholders = ",".join("?" for _ in delete_ids)
+            rows = db.execute(
+                f"SELECT file_name, storage_path FROM trip_images "
+                f"WHERE trip_id = ? AND id IN ({placeholders})",
+                (trip_id, *delete_ids),
+            ).fetchall()
+            removed_records = [(r["file_name"], r["storage_path"]) for r in rows]
+            db.execute(
+                f"DELETE FROM trip_images WHERE trip_id = ? AND id IN ({placeholders})",
+                (trip_id, *delete_ids),
+            )
+
+    # ── insert new images ──
+    if new_images:
+        if DATABASE_URL:
+            with db.cursor() as cursor:
+                cursor.executemany(
+                    """
+                    INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            trip_id,
+                            rec["file_name"],
+                            rec["original_name"],
+                            rec["storage_path"],
+                            rec["public_url"],
+                        )
+                        for rec in new_images
+                    ],
+                )
+        else:
+            db.executemany(
+                """
+                INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        trip_id,
+                        rec["file_name"],
+                        rec["original_name"],
+                        rec["storage_path"],
+                        rec["public_url"],
+                    )
+                    for rec in new_images
+                ],
+            )
+
     db.commit()
+
+    # ── remove files from local disk + storage bucket ──
+    storage_client = get_storage_client()
+    storage_paths_to_remove: list[str] = []
+    for file_name, storage_path in removed_records:
+        if storage_path:
+            storage_paths_to_remove.append(storage_path)
+        local_path = UPLOAD_DIR / file_name
+        if local_path.exists():
+            local_path.unlink()
+    if storage_client and storage_paths_to_remove:
+        try:
+            storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).remove(storage_paths_to_remove)
+        except Exception:
+            pass
+
     flash("แก้ไขรายการเรียบร้อยแล้ว", "success")
     return redirect(url_for("index", month=month or trip_date[:7]))
 
