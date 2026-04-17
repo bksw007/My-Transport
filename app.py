@@ -728,17 +728,18 @@ def export_monthly_pdf():
         Spacer(1, 14),
     ]
 
-    table_data = [["วันที่", "จาก", "ไป", "หมายเหตุ"]]
+    table_data = [["วันที่", "จาก", "ไป", "งานของ", "หมายเหตุ"]]
     for trip in sorted(trips, key=lambda item: item["trip_date"]):
         note = trip["note"] or "-"
-        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], note])
+        owner = trip["owner"] or "-"
+        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], owner, note])
 
     if len(table_data) == 1:
-        table_data.append(["-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
+        table_data.append(["-", "-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
 
     table = Table(
         table_data,
-        colWidths=[28 * mm, 50 * mm, 50 * mm, 54 * mm],
+        colWidths=[24 * mm, 42 * mm, 42 * mm, 30 * mm, 44 * mm],
         repeatRows=1,
     )
     table.setStyle(
