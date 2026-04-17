@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF6820"/>
+      <stop offset="100%" stop-color="#FF0D00"/>
+    </linearGradient>
+    <clipPath id="card">
+      <rect x="66" y="66" width="380" height="380" rx="68"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outer rounded square: orange-red gradient -->
+  <rect width="512" height="512" rx="110" fill="url(#bg)"/>
+
+  <!-- White inner card (square, centered) -->
+  <rect x="66" y="66" width="380" height="380" rx="68" fill="#fff"/>
+
+  <!-- Chevrons clipped inside card -->
+  <g clip-path="url(#card)">
+    <!-- Back chevron: face (bright red) + fold strip (dark red) -->
+    <polygon points="126,150 272,256 126,362"               fill="#E00000"/>
+    <polygon points="170,150 126,150 126,362 170,362 216,256" fill="#960000"/>
+
+    <!-- Front chevron: face (orange-red) + fold strip (dark orange) -->
+    <polygon points="210,150 356,256 210,362"               fill="#FF5200"/>
+    <polygon points="254,150 210,150 210,362 254,362 300,256" fill="#CB2000"/>
+  </g>
+</svg>
