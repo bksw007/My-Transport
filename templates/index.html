@@ -408,18 +408,32 @@
           this.input.parentNode.insertBefore(wrap, this.input);
           wrap.appendChild(this.input);
 
+          /* Portal: append to body to escape overflow:hidden + backdrop-filter stacking */
           this.dd = document.createElement('div');
-          this.dd.className = 'cb-dropdown';
+          this.dd.className = 'cb-dropdown cb-portal';
           this.dd.hidden = true;
-          wrap.appendChild(this.dd);
+          document.body.appendChild(this.dd);
+
+          this._reposition = () => {
+            const r = this.input.getBoundingClientRect();
+            Object.assign(this.dd.style, {
+              top:   (r.bottom + 4) + 'px',
+              left:  r.left + 'px',
+              width: r.width + 'px',
+            });
+          };
 
           this.input.setAttribute('autocomplete', 'off');
           this.input.addEventListener('focus', () => this._open());
           this.input.addEventListener('input',  () => this._render());
-          document.addEventListener('mousedown', e => { if (!wrap.contains(e.target)) this._close(); });
+          document.addEventListener('mousedown', e => {
+            if (!wrap.contains(e.target) && !this.dd.contains(e.target)) this._close();
+          });
+          window.addEventListener('scroll',  () => { if (!this.dd.hidden) this._reposition(); }, { passive: true, capture: true });
+          window.addEventListener('resize',  () => { if (!this.dd.hidden) this._reposition(); }, { passive: true });
         }
 
-        _open()  { this.dd.hidden = false; this._render(); }
+        _open()  { this._reposition(); this.dd.hidden = false; this._render(); }
         _close() { this.dd.hidden = true; }
 
         /* ── Render ──────────────────────────────────────────────── */

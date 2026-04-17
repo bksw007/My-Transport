@@ -931,11 +931,6 @@ h1 {
 }
 
 .cb-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 200;
   background: var(--panel-alt);
   border: 1px solid var(--border-hi);
   border-radius: var(--r-sm);
@@ -943,6 +938,12 @@ h1 {
   overflow: hidden;
   max-height: 220px;
   overflow-y: auto;
+}
+
+/* Portal variant: fixed to viewport, positioned via JS */
+.cb-portal {
+  position: fixed;
+  z-index: 9999;
 }
 
 .cb-loading {
