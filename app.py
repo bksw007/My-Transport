@@ -225,21 +225,24 @@ def init_db() -> None:
 def register_pdf_fonts() -> None:
     global PDF_FONT_REGULAR, PDF_FONT_BOLD
 
+    # Sarabun is bundled in the repo and covers Thai + Latin + digits +
+    # all tone marks — same font used in the web UI.  System fallbacks
+    # are only relevant for a dev box without the bundled files.
     font_candidates = [
         (
             "MyTransportThai",
-            BASE_DIR / "assets" / "fonts" / "NotoSansThai-Regular.ttf",
-            BASE_DIR / "assets" / "fonts" / "NotoSansThai-Bold.ttf",
+            BASE_DIR / "assets" / "fonts" / "Sarabun-Regular.ttf",
+            BASE_DIR / "assets" / "fonts" / "Sarabun-Bold.ttf",
         ),
         (
             "MyTransportThaiFallback",
-            Path("/System/Library/Fonts/ThonburiUI.ttc"),
-            Path("/System/Library/Fonts/ThonburiUI.ttc"),
+            Path("/System/Library/Fonts/Supplemental/Ayuthaya.ttf"),
+            Path("/System/Library/Fonts/Supplemental/Ayuthaya.ttf"),
         ),
         (
             "MyTransportThaiFallbackAlt",
-            Path("/System/Library/Fonts/Supplemental/Silom.ttf"),
-            Path("/System/Library/Fonts/Supplemental/Silom.ttf"),
+            Path("/System/Library/Fonts/Supplemental/Sathu.ttf"),
+            Path("/System/Library/Fonts/Supplemental/Sathu.ttf"),
         ),
     ]
 
