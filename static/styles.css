@@ -741,14 +741,18 @@ h1 {
   position: fixed;
   inset: 0;
   z-index: 1000;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
   padding: 20px;
   background: rgba(0,0,0,0);
   backdrop-filter: blur(0px);
   transition: background 250ms ease, backdrop-filter 250ms ease;
   pointer-events: none;
 }
+/* ── centre when short, scroll when tall ── */
+.modal-overlay > * { margin: auto; }
 .modal-overlay.is-open {
   background: rgba(0,0,0,0.72);
   backdrop-filter: blur(10px);
