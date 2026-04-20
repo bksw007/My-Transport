@@ -984,6 +984,32 @@ h1 {
 
 @keyframes cbSpin { to { transform: rotate(360deg); } }
 
+/* ── Button loading spinner ─────────────────────────────────────── */
+.btn-spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255,255,255,0.25);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: cbSpin 600ms linear infinite;
+  flex-shrink: 0;
+}
+
+.submit-btn:disabled,
+.modal-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.export-btn.is-loading {
+  opacity: 0.65;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .cb-empty {
   padding: 14px 14px;
   font-size: 0.83rem;

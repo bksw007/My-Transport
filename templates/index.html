@@ -243,6 +243,13 @@
     </div>
 
     <script>
+      /* ── Loading helpers ─────────────────────────────────────────── */
+      function setLoading(btn, text) {
+        btn.disabled = true;
+        btn.dataset.origHtml = btn.innerHTML;
+        btn.innerHTML = `<span class="btn-spinner"></span>${text}`;
+      }
+
       /* ── File input feedback ───────────────────────────────────── */
       const fileInput = document.getElementById('images');
       const fileText  = document.getElementById('file-zone-text');
@@ -251,6 +258,22 @@
         const n = fileInput.files.length;
         fileText.textContent = n > 0 ? `เลือกแล้ว ${n} รูป` : 'เลือกรูปภาพ';
         fileZone.classList.toggle('has-files', n > 0);
+      });
+
+      /* ── Main form: loading on submit ───────────────────────────── */
+      document.querySelector('.trip-form')?.addEventListener('submit', function() {
+        setLoading(this.querySelector('.submit-btn'), 'กำลังบันทึก...');
+      });
+
+      /* ── Export PDF: loading until download starts ───────────────── */
+      document.querySelector('.export-btn')?.addEventListener('click', function() {
+        const orig = this.innerHTML;
+        this.classList.add('is-loading');
+        this.innerHTML = `<span class="btn-spinner"></span>กำลังสร้าง PDF...`;
+        setTimeout(() => {
+          this.classList.remove('is-loading');
+          this.innerHTML = orig;
+        }, 8000);
       });
 
       /* ── Date field: click anywhere to open picker ─────────────── */
@@ -320,7 +343,10 @@
 
           openModal(box, btn);
           box.querySelector('#mdl-cancel').addEventListener('click', closeModal);
-          box.querySelector('#mdl-confirm').addEventListener('click', () => form.submit());
+          box.querySelector('#mdl-confirm').addEventListener('click', () => {
+            setLoading(box.querySelector('#mdl-confirm'), 'กำลังลบ...');
+            form.submit();
+          });
         });
       });
 
@@ -399,6 +425,9 @@
             </form>`;
           openModal(box, btn);
           box.querySelector('#edit-cancel').addEventListener('click', closeModal);
+          box.querySelector('.modal-form').addEventListener('submit', function() {
+            setLoading(this.querySelector('[type="submit"]'), 'กำลังบันทึก...');
+          });
           /* date picker ในmodal */
           const dp = box.querySelector('input[type="date"]');
           dp?.addEventListener('click', () => { try { dp.showPicker(); } catch(_) {} });
@@ -510,10 +539,11 @@
 
       class ListManager {
         constructor(inputEl, field) {
-          this.input = inputEl;
-          this.field = field;
-          this.dd    = null;
-          this._cache = null; /* [{id, value}] */
+          this.input   = inputEl;
+          this.field   = field;
+          this.dd      = null;
+          this._cache  = null; /* [{id, value}] */
+          this._editing = false;
           this._init();
         }
 
@@ -564,14 +594,14 @@
             this._render();
           });
           document.addEventListener('mousedown', e => {
-            if (!wrap.contains(e.target) && !this.dd.contains(e.target)) this._close();
+            if (!this._editing && !wrap.contains(e.target) && !this.dd.contains(e.target)) this._close();
           });
           window.addEventListener('scroll',  () => { if (!this.dd.hidden) this._reposition(); }, { passive: true, capture: true });
           window.addEventListener('resize',  () => { if (!this.dd.hidden) this._reposition(); }, { passive: true });
         }
 
         _open()  { this._reposition(); this.dd.hidden = false; this._render(); }
-        _close() { this.dd.hidden = true; }
+        _close() { this.dd.hidden = true; this._editing = false; }
 
         /* ── Render ──────────────────────────────────────────────── */
         async _render() {
@@ -647,6 +677,7 @@
 
         /* ── Inline edit row ─────────────────────────────────────── */
         _editRow(row, item) {
+          this._editing = true;
           row.innerHTML = ''; row.classList.add('cb-item--editing');
 
           const inp = document.createElement('input');
@@ -657,11 +688,12 @@
 
           ok.addEventListener('mousedown', async e => {
             e.preventDefault();
+            this._editing = false;
             const v = inp.value.trim();
             if (v && v !== item.value) { await this._api('PUT', `/${item.id}`, { value: v }); this._bust(); }
             await this._render();
           });
-          cancel.addEventListener('mousedown', async e => { e.preventDefault(); await this._render(); });
+          cancel.addEventListener('mousedown', async e => { e.preventDefault(); this._editing = false; await this._render(); });
           inp.addEventListener('keydown', e => {
             if (e.key === 'Enter')  { e.preventDefault(); ok.dispatchEvent(new MouseEvent('mousedown')); }
             if (e.key === 'Escape') cancel.dispatchEvent(new MouseEvent('mousedown'));
