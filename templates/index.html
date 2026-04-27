@@ -158,7 +158,15 @@
               <h2 class="list-title">รายการประจำเดือน</h2>
             </div>
             <form method="get" class="month-form">
-              <input type="month" name="month" value="{{ selected_month }}" onchange="this.form.submit()" class="month-input">
+              <input
+                type="month"
+                name="month"
+                value="{{ selected_month }}"
+                onchange="this.form.requestSubmit()"
+                class="month-input"
+                aria-label="เลือกเดือนเพื่อดูรายการ"
+              >
+              <button type="submit" class="month-submit">ดูรายการ</button>
             </form>
           </div>
 

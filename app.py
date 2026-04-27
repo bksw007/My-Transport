@@ -265,12 +265,23 @@ def is_allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def normalize_month_value(month_value: str | None) -> str:
+    fallback = date.today().strftime("%Y-%m")
+    if not month_value:
+        return fallback
+
+    try:
+        return datetime.strptime(month_value, "%Y-%m").strftime("%Y-%m")
+    except ValueError:
+        try:
+            return datetime.strptime(month_value, "%Y-%m-%d").strftime("%Y-%m")
+        except ValueError:
+            return fallback
+
+
 def month_bounds(month_value: str | None) -> tuple[str, str]:
-    if month_value:
-        selected = datetime.strptime(month_value, "%Y-%m")
-    else:
-        today = date.today()
-        selected = datetime(today.year, today.month, 1)
+    selected_month = normalize_month_value(month_value)
+    selected = datetime.strptime(selected_month, "%Y-%m")
 
     if selected.month == 12:
         next_month = datetime(selected.year + 1, 1, 1)
@@ -423,7 +434,7 @@ def save_images(files: Iterable) -> list[dict]:
 
 @app.route("/", methods=["GET"])
 def index():
-    selected_month = request.args.get("month") or date.today().strftime("%Y-%m")
+    selected_month = normalize_month_value(request.args.get("month"))
     trips, summary = fetch_trips(selected_month)
     return render_template(
         "index.html",
@@ -689,7 +700,7 @@ def delete_trip(trip_id: int):
 
 @app.route("/export/monthly.pdf", methods=["GET"])
 def export_monthly_pdf():
-    selected_month = request.args.get("month") or date.today().strftime("%Y-%m")
+    selected_month = normalize_month_value(request.args.get("month"))
     trips, summary = fetch_trips(selected_month)
     month_label = datetime.strptime(selected_month, "%Y-%m").strftime("%B %Y")
 
