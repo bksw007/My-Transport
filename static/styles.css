@@ -426,9 +426,6 @@ h1 {
 
 .month-form {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .month-input {
@@ -446,25 +443,6 @@ h1 {
 }
 
 .month-input:focus { border-color: var(--border-hi); }
-
-.month-submit {
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 11px 14px;
-  background: rgba(201,169,107,0.14);
-  color: var(--text);
-  font-family: 'Sarabun', sans-serif;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 160ms, border-color 160ms, background 160ms;
-}
-
-.month-submit:hover {
-  transform: translateY(-1px);
-  border-color: var(--border-hi);
-  background: rgba(201,169,107,0.22);
-}
 
 /* ── Timeline ───────────────────────────────────────────────────── */
 .timeline {
@@ -1184,12 +1162,9 @@ h1 {
 
   .month-form {
     width: 100%;
-    flex-direction: column;
-    align-items: stretch;
   }
 
-  .month-input,
-  .month-submit { width: 100%; }
+  .month-input { width: 100%; }
 
   .photo-strip {
     grid-template-columns: repeat(3, minmax(0,1fr));

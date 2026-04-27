@@ -159,6 +159,7 @@
             </div>
             <form method="get" class="month-form">
               <input
+                id="month_filter"
                 type="month"
                 name="month"
                 value="{{ selected_month }}"
@@ -166,7 +167,6 @@
                 class="month-input"
                 aria-label="เลือกเดือนเพื่อดูรายการ"
               >
-              <button type="submit" class="month-submit">ดูรายการ</button>
             </form>
           </div>
 
@@ -287,6 +287,10 @@
       /* ── Date field: click anywhere to open picker ─────────────── */
       const dateInput = document.getElementById('trip_date');
       dateInput?.addEventListener('click', () => { try { dateInput.showPicker(); } catch(_) {} });
+
+      const monthInput = document.getElementById('month_filter');
+      monthInput?.addEventListener('pointerdown', () => { try { monthInput.showPicker(); } catch(_) {} });
+      monthInput?.addEventListener('click', () => { try { monthInput.showPicker(); } catch(_) {} });
 
       /* ════════════════════════════════════════════════════════════
          MODAL SYSTEM
