@@ -703,6 +703,7 @@ def export_monthly_pdf():
     selected_month = normalize_month_value(request.args.get("month"))
     trips, summary = fetch_trips(selected_month)
     month_label = datetime.strptime(selected_month, "%Y-%m").strftime("%B %Y")
+    export_filename = f"My Transport {selected_month}_{datetime.now().strftime('%H%M%S')}.pdf"
 
     pdf_buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -777,7 +778,7 @@ def export_monthly_pdf():
     return send_file(
         pdf_buffer,
         as_attachment=True,
-        download_name=f"my-transport-{selected_month}.pdf",
+        download_name=export_filename,
         mimetype="application/pdf",
     )
 
