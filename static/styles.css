@@ -153,6 +153,57 @@ h1 {
   letter-spacing: 0.01em;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 220px;
+  padding: 8px 11px 8px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: rgba(9,7,3,0.54);
+  color: var(--muted);
+}
+
+.user-chip img,
+.user-chip span {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.user-chip img {
+  object-fit: cover;
+}
+
+.user-chip span {
+  display: grid;
+  place-items: center;
+  background: var(--gold-glow);
+  color: var(--gold-hi);
+  font-family: 'Kanit', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.user-chip strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .export-btn {
   display: inline-flex;
   align-items: center;
@@ -178,6 +229,120 @@ h1 {
   color: var(--gold-hi);
   transform: translateY(-2px);
   box-shadow: 0 6px 24px rgba(201,169,107,0.14);
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 43px;
+  height: 43px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 160ms, background 160ms, color 160ms, transform 160ms;
+}
+
+.logout-btn:hover {
+  border-color: rgba(217,96,96,0.34);
+  background: var(--danger-dim);
+  color: #f0a0a0;
+  transform: translateY(-1px);
+}
+
+/* ── Auth page ─────────────────────────────────────────────────── */
+.auth-page {
+  min-height: 100svh;
+}
+
+.auth-shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.auth-panel {
+  width: min(100%, 440px);
+  display: grid;
+  gap: 24px;
+  padding: 34px 28px 28px;
+  border-radius: var(--r);
+  border: 1px solid var(--border-hi);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(16px);
+}
+
+.auth-brand {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.auth-brand-icon {
+  width: 74px;
+  height: 48px;
+  margin-bottom: 4px;
+}
+
+.auth-brand h1 {
+  font-size: clamp(2.25rem, 11vw, 3.15rem);
+}
+
+.auth-brand p {
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.google-login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  min-height: 52px;
+  padding: 14px 18px;
+  border-radius: var(--r);
+  border: 1px solid rgba(255,255,255,0.18);
+  background: #f7f3ea;
+  color: #17130c;
+  text-decoration: none;
+  font-family: 'Kanit', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.24);
+  transition: transform 180ms, box-shadow 180ms, background 180ms;
+}
+
+.google-login-btn:hover {
+  transform: translateY(-2px);
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.34);
+}
+
+.google-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.auth-config-warning {
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(217,96,96,0.24);
+  background: var(--danger-dim);
+  color: #f0a0a0;
+  font-size: 0.9rem;
+  text-align: center;
 }
 
 /* ── Flash messages ─────────────────────────────────────────────── */
@@ -1144,8 +1309,18 @@ h1 {
   }
 
   .export-btn {
-    width: 100%;
+    flex: 1;
     justify-content: center;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .user-chip {
+    width: 100%;
+    max-width: none;
   }
 
   .route-row {

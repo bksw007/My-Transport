@@ -20,8 +20,10 @@ from flask import (
     render_template,
     request,
     send_file,
+    session,
     url_for,
 )
+from authlib.integrations.flask_client import OAuth
 import psycopg
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -45,14 +47,31 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_STORAGE_BUCKET = os.environ.get("SUPABASE_STORAGE_BUCKET", "trip-images")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
+GOOGLE_AUTH_CONFIGURED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 VALID_SUGGESTION_FIELDS = {"origin", "destination", "owner"}
 PDF_FONT_REGULAR = "Helvetica"
 PDF_FONT_BOLD = "Helvetica-Bold"
+PUBLIC_ENDPOINTS = {"login", "google_login", "google_callback", "static"}
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "my-transport-dev-secret")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
+oauth = OAuth(app)
+if GOOGLE_AUTH_CONFIGURED:
+    oauth.register(
+        name="google",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        server_metadata_url=GOOGLE_DISCOVERY_URL,
+        client_kwargs={"scope": "openid email profile"},
+    )
 
 
 def get_database_url() -> str:
@@ -73,6 +92,19 @@ def get_storage_client() -> Client | None:
     if "storage_client" not in g:
         g.storage_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     return g.storage_client
+
+
+def get_current_user() -> dict | None:
+    return session.get("user")
+
+
+@app.before_request
+def require_login() -> object | None:
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return None
+    if get_current_user():
+        return None
+    return redirect(url_for("login", next=request.full_path.rstrip("?")))
 
 
 @app.teardown_appcontext
@@ -300,6 +332,26 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     return trips, summary
 
 
+def fetch_all_suggestions() -> dict[str, list[dict]]:
+    suggestions = {field: [] for field in VALID_SUGGESTION_FIELDS}
+    db = get_db()
+    with db.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT field, id, value
+            FROM suggestions
+            WHERE field = ANY(%s)
+            ORDER BY field ASC, value ASC
+            """,
+            (list(VALID_SUGGESTION_FIELDS),),
+        )
+        rows = cursor.fetchall()
+
+    for field, suggestion_id, value in rows:
+        suggestions[field].append({"id": suggestion_id, "value": value})
+    return suggestions
+
+
 def save_images(files: Iterable) -> list[dict]:
     saved_images: list[dict] = []
     storage_client = get_storage_client()
@@ -339,14 +391,73 @@ def save_images(files: Iterable) -> list[dict]:
     return saved_images
 
 
+def safe_next_url(next_url: str | None) -> str:
+    if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
+        return url_for("index")
+    return next_url
+
+
+@app.route("/login", methods=["GET"])
+def login():
+    if get_current_user():
+        return redirect(safe_next_url(request.args.get("next")))
+    return render_template(
+        "login.html",
+        google_configured=GOOGLE_AUTH_CONFIGURED,
+        next_url=safe_next_url(request.args.get("next")),
+    )
+
+
+@app.route("/auth/google", methods=["GET"])
+def google_login():
+    if not GOOGLE_AUTH_CONFIGURED:
+        flash("ยังไม่ได้ตั้งค่า Google OAuth client", "error")
+        return redirect(url_for("login", next=request.args.get("next")))
+    session["auth_next"] = safe_next_url(request.args.get("next"))
+    redirect_uri = url_for("google_callback", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/google/callback", methods=["GET"])
+def google_callback():
+    if not GOOGLE_AUTH_CONFIGURED:
+        flash("ยังไม่ได้ตั้งค่า Google OAuth client", "error")
+        return redirect(url_for("login"))
+
+    token = oauth.google.authorize_access_token()
+    user_info = token.get("userinfo")
+    if not user_info:
+        flash("เข้าสู่ระบบด้วย Google ไม่สำเร็จ", "error")
+        return redirect(url_for("login"))
+
+    session["user"] = {
+        "email": user_info.get("email"),
+        "name": user_info.get("name") or user_info.get("email"),
+        "picture": user_info.get("picture"),
+    }
+    session.permanent = True
+    flash("เข้าสู่ระบบเรียบร้อยแล้ว", "success")
+    return redirect(safe_next_url(session.pop("auth_next", None)))
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    flash("ออกจากระบบแล้ว", "success")
+    return redirect(url_for("login"))
+
+
 @app.route("/", methods=["GET"])
 def index():
     selected_month = normalize_month_value(request.args.get("month"))
     trips, summary = fetch_trips(selected_month)
+    suggestions = fetch_all_suggestions()
     return render_template(
         "index.html",
         trips=trips,
         summary=summary,
+        suggestions=suggestions,
+        current_user=get_current_user(),
         selected_month=selected_month,
         today=date.today().isoformat(),
     )
@@ -625,6 +736,11 @@ def get_suggestions(field: str):
         )
         rows = cursor.fetchall()
     return jsonify([{"id": r[0], "value": r[1]} for r in rows])
+
+
+@app.route("/api/suggestions", methods=["GET"])
+def get_all_suggestions():
+    return jsonify(fetch_all_suggestions())
 
 
 @app.route("/api/suggestions/<field>", methods=["POST"])

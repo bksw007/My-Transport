@@ -46,12 +46,29 @@
             <p class="brand-sub">บันทึกงานวิ่งรถรายวัน · สรุปรายเดือนเป็น PDF</p>
           </div>
         </div>
-        <a class="export-btn" href="{{ url_for('export_monthly_pdf', month=selected_month) }}">
-          <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
-            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
-          </svg>
-          Export PDF
-        </a>
+        <div class="topbar-actions">
+          <div class="user-chip">
+            {% if current_user.picture %}
+              <img src="{{ current_user.picture }}" alt="">
+            {% else %}
+              <span>{{ (current_user.name or current_user.email or 'U')[:1] }}</span>
+            {% endif %}
+            <strong>{{ current_user.name or current_user.email }}</strong>
+          </div>
+          <a class="export-btn" href="{{ url_for('export_monthly_pdf', month=selected_month) }}">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
+              <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+            Export PDF
+          </a>
+          <form action="{{ url_for('logout') }}" method="post">
+            <button class="logout-btn" type="submit" title="ออกจากระบบ">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
+                <path fill-rule="evenodd" d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25zm11.47 3.47a.75.75 0 011.06 0l2.25 2.25a.75.75 0 010 1.06l-2.25 2.25a.75.75 0 11-1.06-1.06l.97-.97H8.75a.75.75 0 010-1.5h6.69l-.97-.97a.75.75 0 010-1.06z" clip-rule="evenodd"/>
+              </svg>
+            </button>
+          </form>
+        </div>
       </header>
 
       {% with messages = get_flashed_messages(with_categories=true) %}
@@ -549,6 +566,41 @@
         add:    `<svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>`,
       };
 
+      const INITIAL_SUGGESTIONS = {{ suggestions|tojson }};
+
+      const SuggestionStore = {
+        data: INITIAL_SUGGESTIONS || null,
+        promise: null,
+        async loadAll() {
+          if (this.data) return this.data;
+          if (!this.promise) {
+            this.promise = fetch('/api/suggestions')
+              .then(r => {
+                if (!r.ok) throw new Error('suggestions failed');
+                return r.json();
+              })
+              .then(data => {
+                this.data = data;
+                return data;
+              })
+              .finally(() => { this.promise = null; });
+          }
+          return this.promise;
+        },
+        async loadField(field) {
+          const all = await this.loadAll();
+          return all[field] || [];
+        },
+        async refreshField(field) {
+          const r = await fetch(`/api/suggestions/${field}`);
+          if (!r.ok) throw new Error('suggestions failed');
+          const rows = await r.json();
+          this.data = { ...(this.data || {}), [field]: rows };
+          return rows;
+        },
+      };
+      if (!SuggestionStore.data) SuggestionStore.loadAll().catch(() => {});
+
       class ListManager {
         constructor(inputEl, field) {
           this.input   = inputEl;
@@ -561,13 +613,14 @@
 
         /* ── API helpers ─────────────────────────────────────────── */
         async _load() {
-          if (this._cache) return this._cache;
-          const r = await fetch(`/api/suggestions/${this.field}`);
-          this._cache = await r.json();
+          this._cache = await SuggestionStore.loadField(this.field);
           return this._cache;
         }
 
-        _bust() { this._cache = null; }
+        async _refresh() {
+          this._cache = await SuggestionStore.refreshField(this.field);
+          return this._cache;
+        }
 
         async _api(method, path = '', body = null) {
           const opts = { method, headers: {} };
@@ -656,7 +709,7 @@
               e.preventDefault();
               delBtn.disabled = true;
               await this._api('DELETE', `/${item.id}`);
-              this._bust(); await this._render();
+              await this._refresh(); await this._render();
             });
 
             acts.append(editBtn, delBtn);
@@ -680,7 +733,7 @@
             addBtn.addEventListener('mousedown', async e => {
               e.preventDefault(); addBtn.disabled = true;
               await this._api('POST', '', { value: val });
-              this._bust(); await this._render();
+              await this._refresh(); await this._render();
             });
             this.dd.appendChild(addBtn);
           }
@@ -702,7 +755,7 @@
             e.preventDefault();
             this._editing = false;
             const v = inp.value.trim();
-            if (v && v !== item.value) { await this._api('PUT', `/${item.id}`, { value: v }); this._bust(); }
+            if (v && v !== item.value) { await this._api('PUT', `/${item.id}`, { value: v }); await this._refresh(); }
             await this._render();
           });
           cancel.addEventListener('mousedown', async e => { e.preventDefault(); this._editing = false; await this._render(); });
