@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
 import uuid
 from contextlib import closing
@@ -41,7 +40,6 @@ RUNTIME_DIR = (
     if os.environ.get("VERCEL")
     else BASE_DIR
 )
-DATABASE_PATH = RUNTIME_DIR / "transport.db"
 UPLOAD_DIR = RUNTIME_DIR / "uploads"
 DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -57,13 +55,15 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "my-transport-dev-secret
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 
-def get_db() -> sqlite3.Connection:
+def get_database_url() -> str:
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL or SUPABASE_DB_URL is required")
+    return DATABASE_URL
+
+
+def get_db() -> psycopg.Connection:
     if "db" not in g:
-        if DATABASE_URL:
-            g.db = psycopg.connect(DATABASE_URL)
-        else:
-            g.db = sqlite3.connect(DATABASE_PATH)
-            g.db.row_factory = sqlite3.Row
+        g.db = psycopg.connect(get_database_url())
     return g.db
 
 
@@ -85,141 +85,71 @@ def close_db(_: object | None) -> None:
 def init_db() -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    if DATABASE_URL:
-        with closing(psycopg.connect(DATABASE_URL)) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS trips (
-                        id BIGSERIAL PRIMARY KEY,
-                        trip_date DATE NOT NULL,
-                        origin TEXT NOT NULL,
-                        destination TEXT NOT NULL,
-                        note TEXT DEFAULT '',
-                        owner TEXT DEFAULT '',
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                    )
-                    """
-                )
-                cursor.execute(
-                    """
-                    ALTER TABLE trips ADD COLUMN IF NOT EXISTS owner TEXT DEFAULT ''
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS trip_images (
-                        id BIGSERIAL PRIMARY KEY,
-                        trip_id BIGINT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
-                        file_name TEXT NOT NULL,
-                        original_name TEXT NOT NULL,
-                        storage_path TEXT NOT NULL DEFAULT '',
-                        public_url TEXT NOT NULL DEFAULT '',
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                    )
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_trips_trip_date ON trips (trip_date DESC)
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id)
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_trip_images_storage_path ON trip_images (storage_path)
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS suggestions (
-                        id BIGSERIAL PRIMARY KEY,
-                        field TEXT NOT NULL,
-                        value TEXT NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        UNIQUE (field, value)
-                    )
-                    """
-                )
-                cursor.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_suggestions_field ON suggestions (field)
-                    """
-                )
-            connection.commit()
-    else:
-        with closing(sqlite3.connect(DATABASE_PATH)) as connection:
-            connection.executescript(
+    with closing(psycopg.connect(get_database_url())) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS trips (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trip_date TEXT NOT NULL,
+                    id BIGSERIAL PRIMARY KEY,
+                    trip_date DATE NOT NULL,
                     origin TEXT NOT NULL,
                     destination TEXT NOT NULL,
                     note TEXT DEFAULT '',
                     owner TEXT DEFAULT '',
-                    created_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS trip_images (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trip_id INTEGER NOT NULL,
-                    file_name TEXT NOT NULL,
-                    original_name TEXT NOT NULL,
-                    FOREIGN KEY (trip_id) REFERENCES trips (id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_trips_trip_date ON trips (trip_date DESC);
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
                 """
             )
-            existing_columns = {
-                column_info[1]
-                for column_info in connection.execute("PRAGMA table_info(trip_images)").fetchall()
-            }
-            if "owner" not in existing_columns:
-                connection.execute(
-                    "ALTER TABLE trips ADD COLUMN owner TEXT NOT NULL DEFAULT ''"
-                )
-            if "storage_path" not in existing_columns:
-                connection.execute(
-                    "ALTER TABLE trip_images ADD COLUMN storage_path TEXT NOT NULL DEFAULT ''"
-                )
-            if "public_url" not in existing_columns:
-                connection.execute(
-                    "ALTER TABLE trip_images ADD COLUMN public_url TEXT NOT NULL DEFAULT ''"
-                )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id)"
+            cursor.execute(
+                """
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS owner TEXT DEFAULT ''
+                """
             )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_trip_images_storage_path ON trip_images (storage_path)"
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS trip_images (
+                    id BIGSERIAL PRIMARY KEY,
+                    trip_id BIGINT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
+                    file_name TEXT NOT NULL,
+                    original_name TEXT NOT NULL,
+                    storage_path TEXT NOT NULL DEFAULT '',
+                    public_url TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
             )
-            existing_tables = {
-                row[0]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-            if "suggestions" not in existing_tables:
-                connection.execute(
-                    """
-                    CREATE TABLE suggestions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        field TEXT NOT NULL,
-                        value TEXT NOT NULL,
-                        created_at TEXT NOT NULL,
-                        UNIQUE (field, value)
-                    )
-                    """
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_trips_trip_date ON trips (trip_date DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_trip_images_trip_id ON trip_images (trip_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_trip_images_storage_path ON trip_images (storage_path)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS suggestions (
+                    id BIGSERIAL PRIMARY KEY,
+                    field TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (field, value)
                 )
-                connection.execute(
-                    "CREATE INDEX idx_suggestions_field ON suggestions (field)"
-                )
-            connection.commit()
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_suggestions_field ON suggestions (field)
+                """
+            )
+        connection.commit()
 
 
 def register_pdf_fonts() -> None:
@@ -294,32 +224,8 @@ def month_bounds(month_value: str | None) -> tuple[str, str]:
 def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     start, end = month_bounds(month_value)
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    t.id,
-                    t.trip_date,
-                    t.origin,
-                    t.destination,
-                    t.note,
-                    t.owner,
-                    COALESCE(STRING_AGG(i.file_name, '||' ORDER BY i.id), '') AS image_names,
-                    COALESCE(STRING_AGG(i.original_name, '||' ORDER BY i.id), '') AS original_names,
-                    COALESCE(STRING_AGG(i.public_url, '||' ORDER BY i.id), '') AS public_urls,
-                    COALESCE(STRING_AGG(i.id::text, '||' ORDER BY i.id), '') AS image_ids
-                FROM trips t
-                LEFT JOIN trip_images i ON i.trip_id = t.id
-                WHERE t.trip_date >= %s AND t.trip_date < %s
-                GROUP BY t.id
-                ORDER BY t.trip_date DESC, t.id DESC
-                """,
-                (start, end),
-            )
-            rows = cursor.fetchall()
-    else:
-        rows = db.execute(
+    with db.cursor() as cursor:
+        cursor.execute(
             """
             SELECT
                 t.id,
@@ -328,31 +234,32 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 t.destination,
                 t.note,
                 t.owner,
-                GROUP_CONCAT(i.file_name, '||') AS image_names,
-                GROUP_CONCAT(i.original_name, '||') AS original_names,
-                GROUP_CONCAT(i.public_url, '||') AS public_urls,
-                GROUP_CONCAT(i.id, '||') AS image_ids
+                COALESCE(STRING_AGG(i.file_name, '||' ORDER BY i.id), '') AS image_names,
+                COALESCE(STRING_AGG(i.original_name, '||' ORDER BY i.id), '') AS original_names,
+                COALESCE(STRING_AGG(i.public_url, '||' ORDER BY i.id), '') AS public_urls,
+                COALESCE(STRING_AGG(i.id::text, '||' ORDER BY i.id), '') AS image_ids
             FROM trips t
             LEFT JOIN trip_images i ON i.trip_id = t.id
-            WHERE t.trip_date >= ? AND t.trip_date < ?
+            WHERE t.trip_date >= %s AND t.trip_date < %s
             GROUP BY t.id
             ORDER BY t.trip_date DESC, t.id DESC
             """,
             (start, end),
-        ).fetchall()
+        )
+        rows = cursor.fetchall()
 
     trips = []
     for row in rows:
-        row_id = row[0] if DATABASE_URL else row["id"]
-        row_trip_date = row[1] if DATABASE_URL else row["trip_date"]
-        row_origin = row[2] if DATABASE_URL else row["origin"]
-        row_destination = row[3] if DATABASE_URL else row["destination"]
-        row_note = row[4] if DATABASE_URL else row["note"]
-        row_owner = row[5] if DATABASE_URL else row["owner"]
-        row_image_names = row[6] if DATABASE_URL else row["image_names"]
-        row_original_names = row[7] if DATABASE_URL else row["original_names"]
-        row_public_urls = row[8] if DATABASE_URL else row["public_urls"]
-        row_image_ids = row[9] if DATABASE_URL else row["image_ids"]
+        row_id = row[0]
+        row_trip_date = row[1]
+        row_origin = row[2]
+        row_destination = row[3]
+        row_note = row[4]
+        row_owner = row[5]
+        row_image_names = row[6]
+        row_original_names = row[7]
+        row_public_urls = row[8]
+        row_image_ids = row[9]
         trip_date_value = row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date)
         image_names = row_image_names.split("||") if row_image_names else []
         original_names = row_original_names.split("||") if row_original_names else []
@@ -464,51 +371,23 @@ def create_trip():
         return redirect(url_for("index", month=trip_date[:7]))
 
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO trips (trip_date, origin, destination, note, owner, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (trip_date, origin, destination, note, owner, datetime.utcnow()),
-            )
-            trip_id = cursor.fetchone()[0]
-    else:
-        cursor = db.execute(
+    with db.cursor() as cursor:
+        cursor.execute(
             """
             INSERT INTO trips (trip_date, origin, destination, note, owner, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
-            (trip_date, origin, destination, note, owner, datetime.utcnow().isoformat()),
+            (trip_date, origin, destination, note, owner, datetime.utcnow()),
         )
-        trip_id = cursor.lastrowid
+        trip_id = cursor.fetchone()[0]
 
     if saved_images:
-        if DATABASE_URL:
-            with db.cursor() as cursor:
-                cursor.executemany(
-                    """
-                    INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
-                    VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    [
-                        (
-                            trip_id,
-                            image_record["file_name"],
-                            image_record["original_name"],
-                            image_record["storage_path"],
-                            image_record["public_url"],
-                        )
-                        for image_record in saved_images
-                    ],
-                )
-        else:
-            db.executemany(
+        with db.cursor() as cursor:
+            cursor.executemany(
                 """
                 INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
                 [
                     (
@@ -556,22 +435,12 @@ def update_trip(trip_id: int):
         return redirect(url_for("index", month=month or trip_date[:7]))
 
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE trips
-                SET trip_date=%s, origin=%s, destination=%s, owner=%s, note=%s
-                WHERE id=%s
-                """,
-                (trip_date, origin, destination, owner, note, trip_id),
-            )
-    else:
-        db.execute(
+    with db.cursor() as cursor:
+        cursor.execute(
             """
             UPDATE trips
-            SET trip_date=?, origin=?, destination=?, owner=?, note=?
-            WHERE id=?
+            SET trip_date=%s, origin=%s, destination=%s, owner=%s, note=%s
+            WHERE id=%s
             """,
             (trip_date, origin, destination, owner, note, trip_id),
         )
@@ -579,56 +448,25 @@ def update_trip(trip_id: int):
     # ── delete selected images ──
     removed_records: list[tuple[str, str]] = []   # (file_name, storage_path)
     if delete_ids:
-        if DATABASE_URL:
-            with db.cursor() as cursor:
-                cursor.execute(
-                    "SELECT file_name, storage_path FROM trip_images "
-                    "WHERE trip_id = %s AND id = ANY(%s)",
-                    (trip_id, delete_ids),
-                )
-                removed_records = [(r[0], r[1]) for r in cursor.fetchall()]
-                cursor.execute(
-                    "DELETE FROM trip_images WHERE trip_id = %s AND id = ANY(%s)",
-                    (trip_id, delete_ids),
-                )
-        else:
-            placeholders = ",".join("?" for _ in delete_ids)
-            rows = db.execute(
-                f"SELECT file_name, storage_path FROM trip_images "
-                f"WHERE trip_id = ? AND id IN ({placeholders})",
-                (trip_id, *delete_ids),
-            ).fetchall()
-            removed_records = [(r["file_name"], r["storage_path"]) for r in rows]
-            db.execute(
-                f"DELETE FROM trip_images WHERE trip_id = ? AND id IN ({placeholders})",
-                (trip_id, *delete_ids),
+        with db.cursor() as cursor:
+            cursor.execute(
+                "SELECT file_name, storage_path FROM trip_images "
+                "WHERE trip_id = %s AND id = ANY(%s)",
+                (trip_id, delete_ids),
+            )
+            removed_records = [(r[0], r[1]) for r in cursor.fetchall()]
+            cursor.execute(
+                "DELETE FROM trip_images WHERE trip_id = %s AND id = ANY(%s)",
+                (trip_id, delete_ids),
             )
 
     # ── insert new images ──
     if new_images:
-        if DATABASE_URL:
-            with db.cursor() as cursor:
-                cursor.executemany(
-                    """
-                    INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
-                    VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    [
-                        (
-                            trip_id,
-                            rec["file_name"],
-                            rec["original_name"],
-                            rec["storage_path"],
-                            rec["public_url"],
-                        )
-                        for rec in new_images
-                    ],
-                )
-        else:
-            db.executemany(
+        with db.cursor() as cursor:
+            cursor.executemany(
                 """
                 INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
                 [
                     (
@@ -666,26 +504,18 @@ def update_trip(trip_id: int):
 @app.route("/trips/<int:trip_id>/delete", methods=["POST"])
 def delete_trip(trip_id: int):
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
-            cursor.execute("SELECT file_name, storage_path FROM trip_images WHERE trip_id = %s", (trip_id,))
-            images = cursor.fetchall()
-            cursor.execute("DELETE FROM trip_images WHERE trip_id = %s", (trip_id,))
-            cursor.execute("DELETE FROM trips WHERE id = %s", (trip_id,))
-    else:
-        images = db.execute(
-            "SELECT file_name, storage_path FROM trip_images WHERE trip_id = ?",
-            (trip_id,),
-        ).fetchall()
-        db.execute("DELETE FROM trip_images WHERE trip_id = ?", (trip_id,))
-        db.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+    with db.cursor() as cursor:
+        cursor.execute("SELECT file_name, storage_path FROM trip_images WHERE trip_id = %s", (trip_id,))
+        images = cursor.fetchall()
+        cursor.execute("DELETE FROM trip_images WHERE trip_id = %s", (trip_id,))
+        cursor.execute("DELETE FROM trips WHERE id = %s", (trip_id,))
     db.commit()
 
     storage_client = get_storage_client()
     storage_paths = []
     for image in images:
-        file_name = image[0] if DATABASE_URL else image["file_name"]
-        storage_path = image[1] if DATABASE_URL else image["storage_path"]
+        file_name = image[0]
+        storage_path = image[1]
         storage_paths.append(storage_path)
         image_path = UPLOAD_DIR / file_name
         if image_path.exists():
@@ -788,20 +618,13 @@ def get_suggestions(field: str):
     if field not in VALID_SUGGESTION_FIELDS:
         return jsonify({"error": "invalid field"}), 400
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
-            cursor.execute(
-                "SELECT id, value FROM suggestions WHERE field = %s ORDER BY value ASC",
-                (field,),
-            )
-            rows = cursor.fetchall()
-        return jsonify([{"id": r[0], "value": r[1]} for r in rows])
-    else:
-        rows = db.execute(
-            "SELECT id, value FROM suggestions WHERE field = ? ORDER BY value ASC",
+    with db.cursor() as cursor:
+        cursor.execute(
+            "SELECT id, value FROM suggestions WHERE field = %s ORDER BY value ASC",
             (field,),
-        ).fetchall()
-        return jsonify([{"id": r["id"], "value": r["value"]} for r in rows])
+        )
+        rows = cursor.fetchall()
+    return jsonify([{"id": r[0], "value": r[1]} for r in rows])
 
 
 @app.route("/api/suggestions/<field>", methods=["POST"])
@@ -812,41 +635,26 @@ def add_suggestion(field: str):
     if not value:
         return jsonify({"error": "value required"}), 400
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
+    with db.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO suggestions (field, value, created_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (field, value) DO NOTHING
+            RETURNING id
+            """,
+            (field, value, datetime.utcnow()),
+        )
+        row = cursor.fetchone()
+        if row:
+            suggestion_id = row[0]
+        else:
             cursor.execute(
-                """
-                INSERT INTO suggestions (field, value, created_at)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (field, value) DO NOTHING
-                RETURNING id
-                """,
-                (field, value, datetime.utcnow()),
-            )
-            row = cursor.fetchone()
-            if row:
-                suggestion_id = row[0]
-            else:
-                cursor.execute(
-                    "SELECT id FROM suggestions WHERE field = %s AND value = %s",
-                    (field, value),
-                )
-                suggestion_id = cursor.fetchone()[0]
-        db.commit()
-    else:
-        try:
-            cursor = db.execute(
-                "INSERT INTO suggestions (field, value, created_at) VALUES (?, ?, ?)",
-                (field, value, datetime.utcnow().isoformat()),
-            )
-            suggestion_id = cursor.lastrowid
-            db.commit()
-        except sqlite3.IntegrityError:
-            row = db.execute(
-                "SELECT id FROM suggestions WHERE field = ? AND value = ?",
+                "SELECT id FROM suggestions WHERE field = %s AND value = %s",
                 (field, value),
-            ).fetchone()
-            suggestion_id = row["id"]
+            )
+            suggestion_id = cursor.fetchone()[0]
+    db.commit()
     return jsonify({"id": suggestion_id, "value": value})
 
 
@@ -858,15 +666,9 @@ def update_suggestion(field: str, suggestion_id: int):
     if not value:
         return jsonify({"error": "value required"}), 400
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
-            cursor.execute(
-                "UPDATE suggestions SET value = %s WHERE id = %s AND field = %s",
-                (value, suggestion_id, field),
-            )
-    else:
-        db.execute(
-            "UPDATE suggestions SET value = ? WHERE id = ? AND field = ?",
+    with db.cursor() as cursor:
+        cursor.execute(
+            "UPDATE suggestions SET value = %s WHERE id = %s AND field = %s",
             (value, suggestion_id, field),
         )
     db.commit()
@@ -878,15 +680,9 @@ def delete_suggestion(field: str, suggestion_id: int):
     if field not in VALID_SUGGESTION_FIELDS:
         return jsonify({"error": "invalid field"}), 400
     db = get_db()
-    if DATABASE_URL:
-        with db.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM suggestions WHERE id = %s AND field = %s",
-                (suggestion_id, field),
-            )
-    else:
-        db.execute(
-            "DELETE FROM suggestions WHERE id = ? AND field = ?",
+    with db.cursor() as cursor:
+        cursor.execute(
+            "DELETE FROM suggestions WHERE id = %s AND field = %s",
             (suggestion_id, field),
         )
     db.commit()

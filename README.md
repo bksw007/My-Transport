@@ -9,7 +9,7 @@ Mobile-first web app for logging daily transport jobs with notes, image attachme
 - Filter trips by month
 - Export monthly summary as PDF
 - Dark premium UI tuned for phones first
-- Supports Supabase Postgres via `DATABASE_URL` or `SUPABASE_DB_URL`
+- Requires Supabase Postgres via `DATABASE_URL` or `SUPABASE_DB_URL`
 - Supports Supabase Storage for trip photo uploads when server keys are configured
 
 ## Local Run
@@ -17,6 +17,10 @@ Mobile-first web app for logging daily transport jobs with notes, image attachme
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+export DATABASE_URL="postgresql://..."
+export SUPABASE_URL="https://your-project-ref.supabase.co"
+export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+export SUPABASE_STORAGE_BUCKET="trip-images"
 .venv/bin/python app.py
 ```
 
@@ -44,7 +48,7 @@ export SUPABASE_URL="https://your-project-ref.supabase.co"
 export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 ```
 
-When either database URL is present, the app will use Supabase Postgres. When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are also present, trip photos are uploaded to Supabase Storage bucket `trip-images`.
+The app only uses Supabase/Postgres for database access. If neither `DATABASE_URL` nor `SUPABASE_DB_URL` is set, startup fails instead of falling back to a local database. When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are also present, trip photos are uploaded to Supabase Storage bucket `trip-images`.
 
 ## Deploy
 
