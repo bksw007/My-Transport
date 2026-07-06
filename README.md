@@ -21,6 +21,7 @@ python3 -m venv .venv
 export DATABASE_URL="postgresql://..."
 export GOOGLE_CLIENT_ID="your-google-oauth-client-id"
 export GOOGLE_CLIENT_SECRET="your-google-oauth-client-secret"
+export LEGACY_TRIPS_OWNER_EMAIL="your-google-account@example.com"
 export SUPABASE_URL="https://your-project-ref.supabase.co"
 export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 export SUPABASE_STORAGE_BUCKET="trip-images"
@@ -53,6 +54,8 @@ export SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 
 The app only uses Supabase/Postgres for database access. If neither `DATABASE_URL` nor `SUPABASE_DB_URL` is set, startup fails instead of falling back to a local database. When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are also present, trip photos are uploaded to Supabase Storage bucket `trip-images`.
 
+Trip records are private per Google account. Set `LEGACY_TRIPS_OWNER_EMAIL` once to your Google login email so existing trip rows created before Google login are assigned to your account. The `suggestions` table remains shared across all users.
+
 ## Google Login Setup
 
 1. Create an OAuth 2.0 Web Client in Google Cloud Console
@@ -81,7 +84,7 @@ export GOOGLE_CLIENT_SECRET="your-google-oauth-client-secret"
 vercel deploy -y
 ```
 
-For Vercel, add `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in the project environment variables before the next deploy.
+For Vercel, add `DATABASE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `LEGACY_TRIPS_OWNER_EMAIL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in the project environment variables before the next deploy.
 
 ## Storage Note
 

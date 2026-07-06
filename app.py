@@ -51,6 +51,7 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 GOOGLE_AUTH_CONFIGURED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
+LEGACY_TRIPS_OWNER_EMAIL = os.environ.get("LEGACY_TRIPS_OWNER_EMAIL", "").strip().lower()
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 VALID_SUGGESTION_FIELDS = {"origin", "destination", "owner"}
 PDF_FONT_REGULAR = "Helvetica"
@@ -98,6 +99,14 @@ def get_current_user() -> dict | None:
     return session.get("user")
 
 
+def get_current_user_email() -> str:
+    user = get_current_user() or {}
+    email = (user.get("email") or "").strip().lower()
+    if not email:
+        raise RuntimeError("Authenticated user email is required")
+    return email
+
+
 @app.before_request
 def require_login() -> object | None:
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
@@ -139,6 +148,20 @@ def init_db() -> None:
             )
             cursor.execute(
                 """
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT ''
+                """
+            )
+            if LEGACY_TRIPS_OWNER_EMAIL:
+                cursor.execute(
+                    """
+                    UPDATE trips
+                    SET user_email = %s
+                    WHERE user_email IS NULL OR user_email = ''
+                    """,
+                    (LEGACY_TRIPS_OWNER_EMAIL,),
+                )
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS trip_images (
                     id BIGSERIAL PRIMARY KEY,
                     trip_id BIGINT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
@@ -153,6 +176,12 @@ def init_db() -> None:
             cursor.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_trips_trip_date ON trips (trip_date DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_trips_user_email_trip_date
+                ON trips (user_email, trip_date DESC)
                 """
             )
             cursor.execute(
@@ -255,6 +284,7 @@ def month_bounds(month_value: str | None) -> tuple[str, str]:
 
 def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     start, end = month_bounds(month_value)
+    user_email = get_current_user_email()
     db = get_db()
     with db.cursor() as cursor:
         cursor.execute(
@@ -272,11 +302,11 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 COALESCE(STRING_AGG(i.id::text, '||' ORDER BY i.id), '') AS image_ids
             FROM trips t
             LEFT JOIN trip_images i ON i.trip_id = t.id
-            WHERE t.trip_date >= %s AND t.trip_date < %s
+            WHERE t.user_email = %s AND t.trip_date >= %s AND t.trip_date < %s
             GROUP BY t.id
             ORDER BY t.trip_date DESC, t.id DESC
             """,
-            (start, end),
+            (user_email, start, end),
         )
         rows = cursor.fetchall()
 
@@ -431,7 +461,7 @@ def google_callback():
         return redirect(url_for("login"))
 
     session["user"] = {
-        "email": user_info.get("email"),
+        "email": (user_info.get("email") or "").strip().lower(),
         "name": user_info.get("name") or user_info.get("email"),
         "picture": user_info.get("picture"),
     }
@@ -482,14 +512,15 @@ def create_trip():
         return redirect(url_for("index", month=trip_date[:7]))
 
     db = get_db()
+    user_email = get_current_user_email()
     with db.cursor() as cursor:
         cursor.execute(
             """
-            INSERT INTO trips (trip_date, origin, destination, note, owner, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO trips (trip_date, origin, destination, note, owner, user_email, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (trip_date, origin, destination, note, owner, datetime.utcnow()),
+            (trip_date, origin, destination, note, owner, user_email, datetime.utcnow()),
         )
         trip_id = cursor.fetchone()[0]
 
@@ -546,14 +577,15 @@ def update_trip(trip_id: int):
         return redirect(url_for("index", month=month or trip_date[:7]))
 
     db = get_db()
+    user_email = get_current_user_email()
     with db.cursor() as cursor:
         cursor.execute(
             """
             UPDATE trips
             SET trip_date=%s, origin=%s, destination=%s, owner=%s, note=%s
-            WHERE id=%s
+            WHERE id=%s AND user_email=%s
             """,
-            (trip_date, origin, destination, owner, note, trip_id),
+            (trip_date, origin, destination, owner, note, trip_id, user_email),
         )
 
     # ── delete selected images ──
@@ -562,13 +594,15 @@ def update_trip(trip_id: int):
         with db.cursor() as cursor:
             cursor.execute(
                 "SELECT file_name, storage_path FROM trip_images "
-                "WHERE trip_id = %s AND id = ANY(%s)",
-                (trip_id, delete_ids),
+                "WHERE trip_id = %s AND id = ANY(%s) "
+                "AND EXISTS (SELECT 1 FROM trips WHERE id = %s AND user_email = %s)",
+                (trip_id, delete_ids, trip_id, user_email),
             )
             removed_records = [(r[0], r[1]) for r in cursor.fetchall()]
             cursor.execute(
-                "DELETE FROM trip_images WHERE trip_id = %s AND id = ANY(%s)",
-                (trip_id, delete_ids),
+                "DELETE FROM trip_images WHERE trip_id = %s AND id = ANY(%s) "
+                "AND EXISTS (SELECT 1 FROM trips WHERE id = %s AND user_email = %s)",
+                (trip_id, delete_ids, trip_id, user_email),
             )
 
     # ── insert new images ──
@@ -577,7 +611,10 @@ def update_trip(trip_id: int):
             cursor.executemany(
                 """
                 INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
-                VALUES (%s, %s, %s, %s, %s)
+                SELECT %s, %s, %s, %s, %s
+                WHERE EXISTS (
+                    SELECT 1 FROM trips WHERE id = %s AND user_email = %s
+                )
                 """,
                 [
                     (
@@ -586,6 +623,8 @@ def update_trip(trip_id: int):
                         rec["original_name"],
                         rec["storage_path"],
                         rec["public_url"],
+                        trip_id,
+                        user_email,
                     )
                     for rec in new_images
                 ],
@@ -615,11 +654,27 @@ def update_trip(trip_id: int):
 @app.route("/trips/<int:trip_id>/delete", methods=["POST"])
 def delete_trip(trip_id: int):
     db = get_db()
+    user_email = get_current_user_email()
     with db.cursor() as cursor:
-        cursor.execute("SELECT file_name, storage_path FROM trip_images WHERE trip_id = %s", (trip_id,))
+        cursor.execute(
+            """
+            SELECT i.file_name, i.storage_path
+            FROM trip_images i
+            JOIN trips t ON t.id = i.trip_id
+            WHERE i.trip_id = %s AND t.user_email = %s
+            """,
+            (trip_id, user_email),
+        )
         images = cursor.fetchall()
-        cursor.execute("DELETE FROM trip_images WHERE trip_id = %s", (trip_id,))
-        cursor.execute("DELETE FROM trips WHERE id = %s", (trip_id,))
+        cursor.execute(
+            """
+            DELETE FROM trip_images
+            WHERE trip_id = %s
+            AND EXISTS (SELECT 1 FROM trips WHERE id = %s AND user_email = %s)
+            """,
+            (trip_id, trip_id, user_email),
+        )
+        cursor.execute("DELETE FROM trips WHERE id = %s AND user_email = %s", (trip_id, user_email))
     db.commit()
 
     storage_client = get_storage_client()
