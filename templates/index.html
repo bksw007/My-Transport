@@ -330,6 +330,99 @@
         btn.innerHTML = `<span class="btn-spinner"></span>${text}`;
       }
 
+      async function compressImageFile(file) {
+        if (!file.type.startsWith('image/') || file.size <= 450 * 1024) return file;
+        const url = URL.createObjectURL(file);
+        try {
+          const img = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = reject;
+            image.src = url;
+          });
+
+          const maxSide = 1600;
+          const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          let bestBlob = null;
+          for (const quality of [0.78, 0.68, 0.58, 0.48]) {
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+            if (!blob) break;
+            bestBlob = blob;
+            if (blob.size <= 650 * 1024) break;
+          }
+
+          if (!bestBlob || bestBlob.size >= file.size) return file;
+          const baseName = file.name.replace(/\.[^.]+$/, '') || 'image';
+          return new File([bestBlob], `${baseName}.jpg`, {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+        } catch (_) {
+          return file;
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      }
+
+      async function compressFileInputs(inputs) {
+        if (!window.DataTransfer) return;
+
+        for (const input of inputs) {
+          const files = [...(input.files || [])];
+          if (!files.length) continue;
+
+          const dt = new DataTransfer();
+          for (const file of files) {
+            dt.items.add(await compressImageFile(file));
+          }
+          input.files = dt.files;
+        }
+      }
+
+      function selectedFilesSize(inputs) {
+        return inputs.reduce((sum, input) => {
+          return sum + [...(input.files || [])].reduce((fileSum, file) => fileSum + file.size, 0);
+        }, 0);
+      }
+
+      function bindCompressedSubmit(form, submitSelector, finalText) {
+        form?.addEventListener('submit', async function(e) {
+          if (this.dataset.imagesCompressed === '1') {
+            setLoading(this.querySelector(submitSelector), finalText);
+            return;
+          }
+
+          const imageInputs = [...this.querySelectorAll('input[type="file"][name="images"]')]
+            .filter(input => input.files && input.files.length);
+          if (!imageInputs.length) {
+            setLoading(this.querySelector(submitSelector), finalText);
+            return;
+          }
+
+          e.preventDefault();
+          const btn = this.querySelector(submitSelector);
+          setLoading(btn, 'กำลังย่อรูป...');
+          try {
+            await compressFileInputs(imageInputs);
+            if (selectedFilesSize(imageInputs) > 3800 * 1024) {
+              throw new Error('payload-too-large');
+            }
+            this.dataset.imagesCompressed = '1';
+            setLoading(btn, finalText);
+            this.submit();
+          } catch (_) {
+            btn.disabled = false;
+            btn.innerHTML = btn.dataset.origHtml || btn.innerHTML;
+            alert('รูปที่เลือกยังมีขนาดรวมใหญ่เกินไป กรุณาเลือกรูปน้อยลงหรือส่งแยกหลายครั้งนะครับ');
+          }
+        });
+      }
+
       /* ── File input feedback ───────────────────────────────────── */
       const fileInput = document.getElementById('images');
       const fileText  = document.getElementById('file-zone-text');
@@ -341,9 +434,7 @@
       });
 
       /* ── Main form: loading on submit ───────────────────────────── */
-      document.querySelector('.trip-form')?.addEventListener('submit', function() {
-        setLoading(this.querySelector('.submit-btn'), 'กำลังบันทึก...');
-      });
+      bindCompressedSubmit(document.querySelector('.trip-form'), '.submit-btn', 'กำลังบันทึก...');
 
       /* ── Export PDF: loading until download starts ───────────────── */
       document.querySelector('.export-btn')?.addEventListener('click', function() {
@@ -513,9 +604,7 @@
             </form>`;
           openModal(box, btn);
           box.querySelector('#edit-cancel').addEventListener('click', closeModal);
-          box.querySelector('.modal-form').addEventListener('submit', function() {
-            setLoading(this.querySelector('[type="submit"]'), 'กำลังบันทึก...');
-          });
+          bindCompressedSubmit(box.querySelector('.modal-form'), '[type="submit"]', 'กำลังบันทึก...');
           /* date picker ในmodal */
           const dp = box.querySelector('input[type="date"]');
           dp?.addEventListener('click', () => { try { dp.showPicker(); } catch(_) {} });
