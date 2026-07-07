@@ -54,7 +54,7 @@ GOOGLE_AUTH_CONFIGURED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configuration"
 LEGACY_TRIPS_OWNER_EMAIL = os.environ.get("LEGACY_TRIPS_OWNER_EMAIL", "").strip().lower()
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
-VALID_SUGGESTION_FIELDS = {"origin", "destination", "owner"}
+VALID_SUGGESTION_FIELDS = {"origin", "destination", "owner", "vehicle_type"}
 PDF_FONT_REGULAR = "Helvetica"
 PDF_FONT_BOLD = "Helvetica-Bold"
 PUBLIC_ENDPOINTS = {"login", "google_login", "google_callback", "static"}
@@ -136,6 +136,7 @@ def init_db() -> None:
                     trip_date DATE NOT NULL,
                     origin TEXT NOT NULL,
                     destination TEXT NOT NULL,
+                    vehicle_type TEXT DEFAULT '',
                     toll_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
                     note TEXT DEFAULT '',
                     owner TEXT DEFAULT '',
@@ -146,6 +147,11 @@ def init_db() -> None:
             cursor.execute(
                 """
                 ALTER TABLE trips ADD COLUMN IF NOT EXISTS owner TEXT DEFAULT ''
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS vehicle_type TEXT DEFAULT ''
                 """
             )
             cursor.execute(
@@ -314,6 +320,7 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 t.trip_date,
                 t.origin,
                 t.destination,
+                t.vehicle_type,
                 t.toll_fee,
                 t.note,
                 t.owner,
@@ -337,13 +344,14 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
         row_trip_date = row[1]
         row_origin = row[2]
         row_destination = row[3]
-        row_toll_fee = row[4] or Decimal("0")
-        row_note = row[5]
-        row_owner = row[6]
-        row_image_names = row[7]
-        row_original_names = row[8]
-        row_public_urls = row[9]
-        row_image_ids = row[10]
+        row_vehicle_type = row[4]
+        row_toll_fee = row[5] or Decimal("0")
+        row_note = row[6]
+        row_owner = row[7]
+        row_image_names = row[8]
+        row_original_names = row[9]
+        row_public_urls = row[10]
+        row_image_ids = row[11]
         trip_date_value = row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date)
         image_names = row_image_names.split("||") if row_image_names else []
         original_names = row_original_names.split("||") if row_original_names else []
@@ -370,6 +378,7 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 "trip_date": trip_date_value,
                 "origin": row_origin,
                 "destination": row_destination,
+                "vehicle_type": row_vehicle_type,
                 "toll_fee": f"{row_toll_fee:.2f}",
                 "note": row_note,
                 "owner": row_owner,
@@ -521,6 +530,7 @@ def create_trip():
     trip_date = request.form.get("trip_date", "").strip()
     origin = request.form.get("origin", "").strip()
     destination = request.form.get("destination", "").strip()
+    vehicle_type = request.form.get("vehicle_type", "").strip()
     toll_fee_raw = request.form.get("toll_fee", "").strip()
     note = request.form.get("note", "").strip()
     owner = request.form.get("owner", "").strip()
@@ -546,11 +556,11 @@ def create_trip():
     with db.cursor() as cursor:
         cursor.execute(
             """
-            INSERT INTO trips (trip_date, origin, destination, toll_fee, note, owner, user_email, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO trips (trip_date, origin, destination, vehicle_type, toll_fee, note, owner, user_email, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (trip_date, origin, destination, toll_fee, note, owner, user_email, datetime.utcnow()),
+            (trip_date, origin, destination, vehicle_type, toll_fee, note, owner, user_email, datetime.utcnow()),
         )
         trip_id = cursor.fetchone()[0]
 
@@ -583,6 +593,7 @@ def update_trip(trip_id: int):
     trip_date   = request.form.get("trip_date",   "").strip()
     origin      = request.form.get("origin",      "").strip()
     destination = request.form.get("destination", "").strip()
+    vehicle_type = request.form.get("vehicle_type", "").strip()
     owner       = request.form.get("owner",       "").strip()
     toll_fee_raw = request.form.get("toll_fee",   "").strip()
     note        = request.form.get("note",        "").strip()
@@ -619,10 +630,10 @@ def update_trip(trip_id: int):
         cursor.execute(
             """
             UPDATE trips
-            SET trip_date=%s, origin=%s, destination=%s, owner=%s, toll_fee=%s, note=%s
+            SET trip_date=%s, origin=%s, destination=%s, vehicle_type=%s, owner=%s, toll_fee=%s, note=%s
             WHERE id=%s AND user_email=%s
             """,
-            (trip_date, origin, destination, owner, toll_fee, note, trip_id, user_email),
+            (trip_date, origin, destination, vehicle_type, owner, toll_fee, note, trip_id, user_email),
         )
 
     # ── delete selected images ──
@@ -773,19 +784,20 @@ def export_monthly_pdf():
         Spacer(1, 14),
     ]
 
-    table_data = [["วันที่", "จาก", "ไป", "งานของ", "ค่าทางด่วน", "หมายเหตุ"]]
+    table_data = [["วันที่", "จาก", "ไป", "งานของ", "ประเภทรถ", "ค่าทางด่วน", "หมายเหตุ"]]
     for trip in sorted(trips, key=lambda item: item["trip_date"]):
         note = trip["note"] or "-"
         owner = trip["owner"] or "-"
+        vehicle_type = trip["vehicle_type"] or "-"
         toll_fee = f"{Decimal(trip['toll_fee']):,.2f}" if Decimal(trip["toll_fee"]) else "-"
-        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], owner, toll_fee, note])
+        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], owner, vehicle_type, toll_fee, note])
 
     if len(table_data) == 1:
-        table_data.append(["-", "-", "-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
+        table_data.append(["-", "-", "-", "-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
 
     table = Table(
         table_data,
-        colWidths=[23 * mm, 36 * mm, 36 * mm, 28 * mm, 27 * mm, 32 * mm],
+        colWidths=[22 * mm, 31 * mm, 31 * mm, 25 * mm, 24 * mm, 24 * mm, 25 * mm],
         repeatRows=1,
     )
     table.setStyle(

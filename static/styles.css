@@ -837,7 +837,8 @@ h1 {
   background: linear-gradient(90deg, rgba(201,169,107,0.35), rgba(201,169,107,0.60));
 }
 
-.tl-owner {
+.tl-owner,
+.tl-vehicle {
   display: flex;
   align-items: center;
   gap: 6px;
