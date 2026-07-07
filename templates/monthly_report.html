@@ -65,10 +65,16 @@
 
       .report-head {
         display: flex;
+        align-items: center;
         justify-content: space-between;
         gap: 18px;
         border-bottom: 2px solid var(--ink);
         padding-bottom: 12px;
+      }
+
+      .title {
+        flex: 1 1 auto;
+        min-width: 0;
       }
 
       .title h1 {
@@ -88,6 +94,7 @@
         align-items: center;
         gap: 10px;
         min-width: 210px;
+        flex: 0 0 auto;
         justify-content: flex-end;
         text-align: right;
       }
@@ -199,11 +206,16 @@
           box-shadow: none;
         }
 
+        .report-head {
+          flex-direction: row;
+          align-items: center;
+        }
+
         thead { display: table-header-group; }
         tr { page-break-inside: avoid; }
       }
 
-      @media (max-width: 760px) {
+      @media screen and (max-width: 760px) {
         .page {
           width: auto;
           min-height: 0;
