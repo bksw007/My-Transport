@@ -155,6 +155,10 @@
         table-layout: fixed;
       }
 
+      .report-table--continued {
+        margin-top: 18px;
+      }
+
       th,
       td {
         border: 1px solid var(--line);
@@ -212,6 +216,11 @@
         }
 
         .report-table { break-inside: auto; }
+        .report-table--continued {
+          break-before: page;
+          page-break-before: always;
+          margin-top: 0;
+        }
         .report-table thead {
           display: table-header-group;
           break-inside: avoid;
@@ -246,7 +255,7 @@
   <body>
     <div class="toolbar">
       <a href="{{ url_for('index', month=selected_month, vehicle_type=selected_vehicle_type, tab='list', _anchor='list') }}">กลับ</a>
-      <button type="button" onclick="window.print()">พิมพ์ / บันทึก PDF</button>
+      <button type="button" onclick="printReport()">พิมพ์ / บันทึก PDF</button>
     </div>
 
     <main class="page">
@@ -315,8 +324,90 @@
     </main>
 
     <script>
+      let originalReportTableHtml = null;
+      let paginatedReportContainer = null;
+
+      function mmToPx(mm) {
+        const probe = document.createElement('div');
+        probe.style.height = `${mm}mm`;
+        probe.style.position = 'absolute';
+        probe.style.visibility = 'hidden';
+        document.body.appendChild(probe);
+        const px = probe.getBoundingClientRect().height;
+        probe.remove();
+        return px || (mm * 3.78);
+      }
+
+      function makeReportTable(thead, rows, continued) {
+        const table = document.createElement('table');
+        table.className = `report-table${continued ? ' report-table--continued' : ''}`;
+        table.appendChild(thead.cloneNode(true));
+        const tbody = document.createElement('tbody');
+        rows.forEach(row => tbody.appendChild(row.cloneNode(true)));
+        table.appendChild(tbody);
+        return table;
+      }
+
+      function preparePrintReport() {
+        const table = document.querySelector('.report-table');
+        if (!table || paginatedReportContainer) return;
+
+        const rows = [...table.tBodies[0].rows];
+        if (rows.length <= 1) return;
+
+        originalReportTableHtml = table.outerHTML;
+        const rowHeights = rows.map(row => Math.max(24, Math.ceil(row.getBoundingClientRect().height)));
+        const headerHeight = Math.max(28, Math.ceil(table.tHead.getBoundingClientRect().height));
+        const pageHeight = mmToPx(273);
+        const reportHeadHeight = document.querySelector('.report-head')?.getBoundingClientRect().height || 0;
+        const summaryHeight = document.querySelector('.summary')?.getBoundingClientRect().height || 0;
+        const firstPageLimit = Math.max(240, pageHeight - reportHeadHeight - summaryHeight - headerHeight - 56);
+        const nextPageLimit = Math.max(320, pageHeight - headerHeight - 32);
+
+        const chunks = [];
+        let chunk = [];
+        let usedHeight = 0;
+        rows.forEach((row, index) => {
+          const limit = chunks.length === 0 ? firstPageLimit : nextPageLimit;
+          const rowHeight = rowHeights[index];
+          if (chunk.length && usedHeight + rowHeight > limit) {
+            chunks.push(chunk);
+            chunk = [];
+            usedHeight = 0;
+          }
+          chunk.push(row);
+          usedHeight += rowHeight;
+        });
+        if (chunk.length) chunks.push(chunk);
+        if (chunks.length <= 1) return;
+
+        const container = document.createElement('div');
+        container.className = 'report-table-pages';
+        chunks.forEach((rowsForPage, index) => {
+          container.appendChild(makeReportTable(table.tHead, rowsForPage, index > 0));
+        });
+
+        table.replaceWith(container);
+        paginatedReportContainer = container;
+      }
+
+      function restoreReportTable() {
+        if (!paginatedReportContainer || !originalReportTableHtml) return;
+        paginatedReportContainer.outerHTML = originalReportTableHtml;
+        paginatedReportContainer = null;
+        originalReportTableHtml = null;
+      }
+
+      function printReport() {
+        preparePrintReport();
+        setTimeout(() => window.print(), 50);
+      }
+
+      window.addEventListener('beforeprint', preparePrintReport);
+      window.addEventListener('afterprint', restoreReportTable);
+
       window.addEventListener('load', () => {
-        setTimeout(() => window.print(), 350);
+        setTimeout(printReport, 350);
       });
     </script>
   </body>
