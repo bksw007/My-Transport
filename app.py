@@ -311,8 +311,9 @@ def parse_money(value: str | None) -> Decimal:
     return amount.quantize(Decimal("0.01"))
 
 
-def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
+def fetch_trips(month_value: str | None, vehicle_type: str = "") -> tuple[list[dict], dict]:
     start, end = month_bounds(month_value)
+    selected_vehicle_type = (vehicle_type or "").strip()
     user_email = get_current_user_email()
     db = get_db()
     with db.cursor() as cursor:
@@ -333,11 +334,14 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 COALESCE(STRING_AGG(i.id::text, '||' ORDER BY i.id), '') AS image_ids
             FROM trips t
             LEFT JOIN trip_images i ON i.trip_id = t.id
-            WHERE t.user_email = %s AND t.trip_date >= %s AND t.trip_date < %s
+            WHERE t.user_email = %s
+              AND t.trip_date >= %s
+              AND t.trip_date < %s
+              AND (%s = '' OR COALESCE(t.vehicle_type, '') = %s)
             GROUP BY t.id
             ORDER BY t.trip_date DESC, t.id DESC
             """,
-            (user_email, start, end),
+            (user_email, start, end, selected_vehicle_type, selected_vehicle_type),
         )
         rows = cursor.fetchall()
 
@@ -397,8 +401,9 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     return trips, summary
 
 
-def fetch_trips_for_pdf(month_value: str | None) -> tuple[list[dict], dict]:
+def fetch_trips_for_pdf(month_value: str | None, vehicle_type: str = "") -> tuple[list[dict], dict]:
     start, end = month_bounds(month_value)
+    selected_vehicle_type = (vehicle_type or "").strip()
     user_email = get_current_user_email()
     db = get_db()
     with db.cursor() as cursor:
@@ -413,10 +418,13 @@ def fetch_trips_for_pdf(month_value: str | None) -> tuple[list[dict], dict]:
                 toll_fee,
                 note
             FROM trips
-            WHERE user_email = %s AND trip_date >= %s AND trip_date < %s
+            WHERE user_email = %s
+              AND trip_date >= %s
+              AND trip_date < %s
+              AND (%s = '' OR COALESCE(vehicle_type, '') = %s)
             ORDER BY trip_date ASC, id ASC
             """,
-            (user_email, start, end),
+            (user_email, start, end, selected_vehicle_type, selected_vehicle_type),
         )
         rows = cursor.fetchall()
 
@@ -579,7 +587,8 @@ def logout():
 @app.route("/", methods=["GET"])
 def index():
     selected_month = normalize_month_value(request.args.get("month"))
-    trips, summary = fetch_trips(selected_month)
+    selected_vehicle_type = request.args.get("vehicle_type", "").strip()
+    trips, summary = fetch_trips(selected_month, selected_vehicle_type)
     suggestions = fetch_all_suggestions()
     return render_template(
         "index.html",
@@ -588,6 +597,7 @@ def index():
         suggestions=suggestions,
         current_user=get_current_user(),
         selected_month=selected_month,
+        selected_vehicle_type=selected_vehicle_type,
         today=date.today().isoformat(),
     )
 
@@ -812,7 +822,8 @@ def delete_trip(trip_id: int):
 @app.route("/export/monthly.pdf", methods=["GET"])
 def export_monthly_pdf():
     selected_month = normalize_month_value(request.args.get("month"))
-    trips, summary = fetch_trips_for_pdf(selected_month)
+    selected_vehicle_type = request.args.get("vehicle_type", "").strip()
+    trips, summary = fetch_trips_for_pdf(selected_month, selected_vehicle_type)
     current_user = get_current_user() or {}
     user_name = current_user.get("name") or current_user.get("email") or "-"
     user_email = current_user.get("email") or "-"
@@ -917,6 +928,8 @@ def export_monthly_pdf():
         ),
         Spacer(1, 14),
     ]
+    if selected_vehicle_type:
+        story.insert(5, pdf_paragraph(f"ประเภทรถ: {selected_vehicle_type}", body_style))
 
     table_data = [
         [
@@ -996,7 +1009,8 @@ def export_monthly_pdf():
 @app.route("/export/monthly", methods=["GET"])
 def export_monthly_report():
     selected_month = normalize_month_value(request.args.get("month"))
-    trips, summary = fetch_trips_for_pdf(selected_month)
+    selected_vehicle_type = request.args.get("vehicle_type", "").strip()
+    trips, summary = fetch_trips_for_pdf(selected_month, selected_vehicle_type)
     month_label = datetime.strptime(selected_month, "%Y-%m").strftime("%B %Y")
     return render_template(
         "monthly_report.html",
@@ -1004,6 +1018,7 @@ def export_monthly_report():
         summary=summary,
         current_user=get_current_user(),
         selected_month=selected_month,
+        selected_vehicle_type=selected_vehicle_type,
         month_label=month_label,
     )
 

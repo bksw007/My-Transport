@@ -245,7 +245,7 @@
   </head>
   <body>
     <div class="toolbar">
-      <a href="{{ url_for('index', month=selected_month, tab='list', _anchor='list') }}">กลับ</a>
+      <a href="{{ url_for('index', month=selected_month, vehicle_type=selected_vehicle_type, tab='list', _anchor='list') }}">กลับ</a>
       <button type="button" onclick="window.print()">พิมพ์ / บันทึก PDF</button>
     </div>
 
@@ -254,6 +254,9 @@
         <div class="title">
           <h1>My Transport</h1>
           <p>สรุปรายเดือน {{ month_label }}</p>
+          {% if selected_vehicle_type %}
+            <p>ประเภทรถ: {{ selected_vehicle_type }}</p>
+          {% endif %}
         </div>
         <div class="user">
           {% if current_user.picture %}

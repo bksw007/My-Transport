@@ -663,6 +663,9 @@ h1 {
 }
 
 .month-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -681,6 +684,10 @@ h1 {
 }
 
 .month-input:focus { border-color: var(--border-hi); }
+
+.vehicle-filter {
+  min-width: 160px;
+}
 
 /* ── Timeline ───────────────────────────────────────────────────── */
 .timeline {
@@ -1463,6 +1470,8 @@ h1 {
   }
 
   .month-form {
+    display: grid;
+    gap: 10px;
     width: 100%;
   }
 
