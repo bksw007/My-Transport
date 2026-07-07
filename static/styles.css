@@ -207,8 +207,10 @@ h1 {
 .export-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 13px 22px;
+  height: 43px;
+  padding: 0 18px;
   border-radius: var(--r);
   border: 1px solid var(--border);
   background: var(--gold-glow);
