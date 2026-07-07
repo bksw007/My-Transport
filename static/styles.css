@@ -43,6 +43,7 @@ img { display: block; max-width: 100%; }
 button, input, textarea, select {
   font: inherit;
   color: inherit;
+  max-width: 100%;
 }
 
 .sr-only {
@@ -434,6 +435,7 @@ h1 {
 
 .tab-panel {
   display: none;
+  min-width: 0;
 }
 
 .tab-panel.is-active {
@@ -1362,6 +1364,15 @@ h1 {
 
 /* ── Responsive: mobile ─────────────────────────────────────────── */
 @media (max-width: 720px) {
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .shell {
+    width: 100%;
+    padding: 20px 12px 56px;
+  }
+
   .topbar {
     flex-direction: column;
     align-items: flex-start;
@@ -1399,10 +1410,45 @@ h1 {
 
   .route-divider { display: none; }
 
+  .form-col--single,
+  .form-card,
+  .list-col,
+  .tab-panel {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .trip-form {
+    padding: 16px;
+  }
+
+  .field input,
+  .field textarea,
+  .month-input,
+  .mf-input {
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .field input,
+  .month-input,
+  .mf-input {
+    min-height: 50px;
+    line-height: 1.25;
+  }
+
+  input[type="date"],
+  input[type="month"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+  }
+
   .list-head {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+    width: 100%;
   }
 
   .month-form {
@@ -1415,7 +1461,39 @@ h1 {
     grid-template-columns: repeat(3, minmax(0,1fr));
   }
 
-  .timeline { padding-left: 26px; }
+  .timeline {
+    width: 100%;
+    max-width: 100%;
+    padding-left: 18px;
+    overflow: hidden;
+  }
+
+  .timeline::before {
+    left: 5px;
+  }
+
+  .tl-dot {
+    left: -18px;
+  }
+
+  .tl-card {
+    width: 100%;
+    max-width: 100%;
+    padding: 14px;
+    overflow: hidden;
+  }
+
+  .tl-route,
+  .tl-place,
+  .tl-note,
+  .tl-owner {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .tl-connector {
+    flex: 0 0 18px;
+  }
 }
 
 /* ── Date input: dark theme + gold calendar icon ────────────────── */
