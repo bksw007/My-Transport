@@ -545,7 +545,7 @@ def create_trip():
 
     db.commit()
     flash("บันทึกงานวิ่งเรียบร้อยแล้ว", "success")
-    return redirect(url_for("index", month=trip_date[:7]))
+    return redirect(url_for("index", month=trip_date[:7], tab="list", _anchor="list"))
 
 
 @app.route("/trips/<int:trip_id>/edit", methods=["POST"])
@@ -648,7 +648,7 @@ def update_trip(trip_id: int):
             pass
 
     flash("แก้ไขรายการเรียบร้อยแล้ว", "success")
-    return redirect(url_for("index", month=month or trip_date[:7]))
+    return redirect(url_for("index", month=month or trip_date[:7], tab="list", _anchor="list"))
 
 
 @app.route("/trips/<int:trip_id>/delete", methods=["POST"])
@@ -691,7 +691,7 @@ def delete_trip(trip_id: int):
         storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).remove(storage_paths)
 
     flash("ลบรายการแล้ว", "success")
-    return redirect(url_for("index", month=request.args.get("month")))
+    return redirect(url_for("index", month=request.args.get("month"), tab="list", _anchor="list"))
 
 
 @app.route("/export/monthly.pdf", methods=["GET"])

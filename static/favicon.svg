@@ -1,38 +1,48 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#FF6820"/>
-      <stop offset="100%" stop-color="#FF0D00"/>
+    <linearGradient id="bg" x1="72" y1="40" x2="440" y2="472" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b150b"/>
+      <stop offset="0.58" stop-color="#090703"/>
+      <stop offset="1" stop-color="#050402"/>
     </linearGradient>
-    <linearGradient id="redTop" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FF2E1A"/>
-      <stop offset="100%" stop-color="#C00000"/>
+    <linearGradient id="gold" x1="118" y1="132" x2="398" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0c774"/>
+      <stop offset="0.46" stop-color="#c9a96b"/>
+      <stop offset="1" stop-color="#8d6a31"/>
     </linearGradient>
-    <linearGradient id="orTop" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FF7A1A"/>
-      <stop offset="100%" stop-color="#FF3300"/>
+    <linearGradient id="shine" x1="128" y1="124" x2="386" y2="154" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff3c8" stop-opacity="0.82"/>
+      <stop offset="1" stop-color="#fff3c8" stop-opacity="0"/>
     </linearGradient>
-    <clipPath id="card">
-      <rect x="66" y="66" width="380" height="380" rx="74"/>
-    </clipPath>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0.79 0 1 0 0 0.66 0 0 1 0 0.42 0 0 0 0.55 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
 
-  <!-- Outer rounded square -->
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <!-- White card -->
-  <rect x="66" y="66" width="380" height="380" rx="74" fill="#fff"/>
+  <rect x="28" y="28" width="456" height="456" rx="92" fill="none" stroke="#c9a96b" stroke-opacity="0.24" stroke-width="10"/>
+  <path d="M96 342h320" stroke="#f0c774" stroke-opacity="0.35" stroke-width="12" stroke-linecap="round"/>
 
-  <g clip-path="url(#card)">
-    <!-- BACK chevron (upper-left, red) -->
-    <!-- face: outer triangle minus inner notch -->
-    <polygon points="128,130 268,230 128,330 128,282 200,230 128,178"
-             fill="url(#redTop)"/>
-    <!-- fold strip along the left vertical edge (darker) -->
-    <polygon points="128,130 168,154 168,306 128,330" fill="#7A0000"/>
-
-    <!-- FRONT chevron (lower-right, orange) -->
-    <polygon points="228,182 368,282 228,382 228,334 300,282 228,230"
-             fill="url(#orTop)"/>
-    <polygon points="228,182 268,206 268,358 228,382" fill="#B02500"/>
+  <g filter="url(#softGlow)">
+    <rect x="94" y="184" width="198" height="122" rx="18" fill="url(#gold)"/>
+    <path d="M112 202h166v28H112z" fill="#fff3c8" opacity="0.18"/>
+    <path d="M112 254h162" stroke="#8d6a31" stroke-width="5" stroke-linecap="round"/>
+    <path d="M300 206h72l54 58v42H300z" fill="url(#gold)"/>
+    <rect x="292" y="232" width="20" height="74" rx="8" fill="#c9a96b"/>
+    <path d="M326 224h40l36 40h-76z" fill="#171107" opacity="0.82"/>
+    <path d="M326 268h94v18h-94z" fill="#aa8748"/>
+    <rect x="410" y="282" width="38" height="24" rx="8" fill="#f0c774"/>
+    <path d="M302 246h14v60h-14z" fill="#685027" opacity="0.58"/>
+    <circle cx="156" cy="326" r="45" fill="#090703" stroke="#f0c774" stroke-width="14"/>
+    <circle cx="156" cy="326" r="17" fill="#c9a96b"/>
+    <circle cx="156" cy="326" r="7" fill="#090703"/>
+    <circle cx="356" cy="326" r="45" fill="#090703" stroke="#f0c774" stroke-width="14"/>
+    <circle cx="356" cy="326" r="17" fill="#c9a96b"/>
+    <circle cx="356" cy="326" r="7" fill="#090703"/>
   </g>
 </svg>

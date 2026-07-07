@@ -11,8 +11,10 @@
 
     <!-- Favicon & app icons -->
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='favicon.svg') }}">
-    <meta name="theme-color" content="#FF2200">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='site.webmanifest') }}">
+    <meta name="theme-color" content="#090703">
 
     <!-- PWA / mobile web app -->
     <meta name="mobile-web-app-capable" content="yes">
@@ -88,25 +90,22 @@
         {% endif %}
       {% endwith %}
 
-      <main class="layout">
+      <nav class="view-tabs" aria-label="สลับมุมมอง">
+        <button class="view-tab is-active" type="button" data-tab="form" aria-controls="panel-form" aria-selected="true">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true"><path d="M10 2a1 1 0 011 1v6h6a1 1 0 110 2h-6v6a1 1 0 11-2 0v-6H3a1 1 0 110-2h6V3a1 1 0 011-1z"/></svg>
+          บันทึกข้อมูล
+        </button>
+        <button class="view-tab" type="button" data-tab="list" aria-controls="panel-list" aria-selected="false">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm3 1a1 1 0 000 2h6a1 1 0 100-2H7zm0 4a1 1 0 100 2h6a1 1 0 100-2H7zm0 4a1 1 0 100 2h3a1 1 0 100-2H7z" clip-rule="evenodd"/></svg>
+          รายการรายเดือน
+        </button>
+      </nav>
 
-        <!-- ── Left: stats + form ─────────────────────────────── -->
-        <aside class="form-col">
+      <main class="tab-layout">
 
-          <div class="stats-row">
-            <div class="stat-card">
-              <span class="stat-label">งานวิ่ง</span>
-              <strong class="stat-value">{{ summary.count }}</strong>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">จำนวนวัน</span>
-              <strong class="stat-value">{{ summary.days }}</strong>
-            </div>
-            <div class="stat-card">
-              <span class="stat-label">รูปแนบ</span>
-              <strong class="stat-value">{{ summary.attachments }}</strong>
-            </div>
-          </div>
+        <!-- ── Tab: entry form ─────────────────────────────────── -->
+        <section class="tab-panel is-active" id="panel-form" data-panel="form">
+          <div class="form-col form-col--single">
 
           <div class="form-card">
             <div class="form-card-head">
@@ -164,10 +163,27 @@
 
             </form>
           </div>
-        </aside>
+          </div>
+        </section>
 
-        <!-- ── Right: trip list ──────────────────────────────── -->
-        <section class="list-col">
+        <!-- ── Tab: monthly list ───────────────────────────────── -->
+        <section class="tab-panel" id="panel-list" data-panel="list">
+          <div class="list-col">
+
+          <div class="stats-row">
+            <div class="stat-card">
+              <span class="stat-label">งานวิ่ง</span>
+              <strong class="stat-value">{{ summary.count }}</strong>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">จำนวนวัน</span>
+              <strong class="stat-value">{{ summary.days }}</strong>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">รูปแนบ</span>
+              <strong class="stat-value">{{ summary.attachments }}</strong>
+            </div>
+          </div>
 
           <div class="list-head">
             <div>
@@ -175,6 +191,7 @@
               <h2 class="list-title">รายการประจำเดือน</h2>
             </div>
             <form method="get" class="month-form">
+              <input type="hidden" name="tab" value="list">
               <input
                 id="month_filter"
                 type="month"
@@ -263,11 +280,38 @@
             </div>
           {% endif %}
 
+          </div>
         </section>
       </main>
     </div>
 
     <script>
+      /* ── View tabs ─────────────────────────────────────────────── */
+      const viewTabs = [...document.querySelectorAll('.view-tab')];
+      const tabPanels = [...document.querySelectorAll('.tab-panel')];
+
+      function setActiveTab(tab, updateUrl = true) {
+        const activeTab = tab === 'list' ? 'list' : 'form';
+        viewTabs.forEach(btn => {
+          const isActive = btn.dataset.tab === activeTab;
+          btn.classList.toggle('is-active', isActive);
+          btn.setAttribute('aria-selected', String(isActive));
+        });
+        tabPanels.forEach(panel => {
+          panel.classList.toggle('is-active', panel.dataset.panel === activeTab);
+        });
+        if (updateUrl) {
+          const nextHash = activeTab === 'list' ? '#list' : '#form';
+          if (window.location.hash !== nextHash) history.replaceState(null, '', nextHash);
+        }
+      }
+
+      const initialParams = new URLSearchParams(window.location.search);
+      const initialTab = window.location.hash === '#list' || initialParams.get('tab') === 'list' ? 'list' : 'form';
+      setActiveTab(initialTab, false);
+      viewTabs.forEach(btn => btn.addEventListener('click', () => setActiveTab(btn.dataset.tab)));
+      window.addEventListener('hashchange', () => setActiveTab(window.location.hash === '#list' ? 'list' : 'form', false));
+
       /* ── Loading helpers ─────────────────────────────────────────── */
       function setLoading(btn, text) {
         btn.disabled = true;
