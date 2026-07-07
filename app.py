@@ -394,6 +394,52 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     return trips, summary
 
 
+def fetch_trips_for_pdf(month_value: str | None) -> tuple[list[dict], dict]:
+    start, end = month_bounds(month_value)
+    user_email = get_current_user_email()
+    db = get_db()
+    with db.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT
+                trip_date,
+                origin,
+                destination,
+                owner,
+                vehicle_type,
+                toll_fee,
+                note
+            FROM trips
+            WHERE user_email = %s AND trip_date >= %s AND trip_date < %s
+            ORDER BY trip_date ASC, id ASC
+            """,
+            (user_email, start, end),
+        )
+        rows = cursor.fetchall()
+
+    trips = []
+    for row in rows:
+        row_trip_date = row[0]
+        row_toll_fee = row[5] or Decimal("0")
+        trips.append(
+            {
+                "trip_date": row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date),
+                "origin": row[1],
+                "destination": row[2],
+                "owner": row[3],
+                "vehicle_type": row[4],
+                "toll_fee": f"{row_toll_fee:.2f}",
+                "note": row[6],
+            }
+        )
+
+    summary = {
+        "count": len(trips),
+        "days": len({trip["trip_date"] for trip in trips}),
+    }
+    return trips, summary
+
+
 def fetch_all_suggestions() -> dict[str, list[dict]]:
     suggestions = {field: [] for field in VALID_SUGGESTION_FIELDS}
     db = get_db()
@@ -745,7 +791,7 @@ def delete_trip(trip_id: int):
 @app.route("/export/monthly.pdf", methods=["GET"])
 def export_monthly_pdf():
     selected_month = normalize_month_value(request.args.get("month"))
-    trips, summary = fetch_trips(selected_month)
+    trips, summary = fetch_trips_for_pdf(selected_month)
     month_label = datetime.strptime(selected_month, "%Y-%m").strftime("%B %Y")
     export_filename = f"My Transport {selected_month}_{datetime.now().strftime('%H%M%S')}.pdf"
 
@@ -785,7 +831,7 @@ def export_monthly_pdf():
     ]
 
     table_data = [["วันที่", "จาก", "ไป", "งานของ", "ประเภทรถ", "ค่าทางด่วน", "หมายเหตุ"]]
-    for trip in sorted(trips, key=lambda item: item["trip_date"]):
+    for trip in trips:
         note = trip["note"] or "-"
         owner = trip["owner"] or "-"
         vehicle_type = trip["vehicle_type"] or "-"
