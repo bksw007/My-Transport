@@ -5,6 +5,7 @@ import tempfile
 import uuid
 from contextlib import closing
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from itertools import zip_longest
 from mimetypes import guess_type
@@ -135,6 +136,7 @@ def init_db() -> None:
                     trip_date DATE NOT NULL,
                     origin TEXT NOT NULL,
                     destination TEXT NOT NULL,
+                    toll_fee NUMERIC(10,2) NOT NULL DEFAULT 0,
                     note TEXT DEFAULT '',
                     owner TEXT DEFAULT '',
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -144,6 +146,11 @@ def init_db() -> None:
             cursor.execute(
                 """
                 ALTER TABLE trips ADD COLUMN IF NOT EXISTS owner TEXT DEFAULT ''
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE trips ADD COLUMN IF NOT EXISTS toll_fee NUMERIC(10,2) NOT NULL DEFAULT 0
                 """
             )
             cursor.execute(
@@ -282,6 +289,19 @@ def month_bounds(month_value: str | None) -> tuple[str, str]:
     return selected.strftime("%Y-%m-%d"), next_month.strftime("%Y-%m-%d")
 
 
+def parse_money(value: str | None) -> Decimal:
+    cleaned = (value or "").strip().replace(",", "")
+    if not cleaned:
+        return Decimal("0.00")
+    try:
+        amount = Decimal(cleaned)
+    except InvalidOperation as exc:
+        raise ValueError("กรอกค่าทางด่วนเป็นตัวเลขเท่านั้น") from exc
+    if amount < 0:
+        raise ValueError("ค่าทางด่วนต้องไม่ติดลบ")
+    return amount.quantize(Decimal("0.01"))
+
+
 def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
     start, end = month_bounds(month_value)
     user_email = get_current_user_email()
@@ -294,6 +314,7 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 t.trip_date,
                 t.origin,
                 t.destination,
+                t.toll_fee,
                 t.note,
                 t.owner,
                 COALESCE(STRING_AGG(i.file_name, '||' ORDER BY i.id), '') AS image_names,
@@ -316,12 +337,13 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
         row_trip_date = row[1]
         row_origin = row[2]
         row_destination = row[3]
-        row_note = row[4]
-        row_owner = row[5]
-        row_image_names = row[6]
-        row_original_names = row[7]
-        row_public_urls = row[8]
-        row_image_ids = row[9]
+        row_toll_fee = row[4] or Decimal("0")
+        row_note = row[5]
+        row_owner = row[6]
+        row_image_names = row[7]
+        row_original_names = row[8]
+        row_public_urls = row[9]
+        row_image_ids = row[10]
         trip_date_value = row_trip_date.isoformat() if hasattr(row_trip_date, "isoformat") else str(row_trip_date)
         image_names = row_image_names.split("||") if row_image_names else []
         original_names = row_original_names.split("||") if row_original_names else []
@@ -348,6 +370,7 @@ def fetch_trips(month_value: str | None) -> tuple[list[dict], dict]:
                 "trip_date": trip_date_value,
                 "origin": row_origin,
                 "destination": row_destination,
+                "toll_fee": f"{row_toll_fee:.2f}",
                 "note": row_note,
                 "owner": row_owner,
                 "images": images,
@@ -498,11 +521,18 @@ def create_trip():
     trip_date = request.form.get("trip_date", "").strip()
     origin = request.form.get("origin", "").strip()
     destination = request.form.get("destination", "").strip()
+    toll_fee_raw = request.form.get("toll_fee", "").strip()
     note = request.form.get("note", "").strip()
     owner = request.form.get("owner", "").strip()
 
     if not trip_date or not origin or not destination:
         flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
+        return redirect(url_for("index", month=trip_date[:7] if trip_date else None))
+
+    try:
+        toll_fee = parse_money(toll_fee_raw)
+    except ValueError as exc:
+        flash(str(exc), "error")
         return redirect(url_for("index", month=trip_date[:7] if trip_date else None))
 
     try:
@@ -516,11 +546,11 @@ def create_trip():
     with db.cursor() as cursor:
         cursor.execute(
             """
-            INSERT INTO trips (trip_date, origin, destination, note, owner, user_email, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO trips (trip_date, origin, destination, toll_fee, note, owner, user_email, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (trip_date, origin, destination, note, owner, user_email, datetime.utcnow()),
+            (trip_date, origin, destination, toll_fee, note, owner, user_email, datetime.utcnow()),
         )
         trip_id = cursor.fetchone()[0]
 
@@ -554,12 +584,19 @@ def update_trip(trip_id: int):
     origin      = request.form.get("origin",      "").strip()
     destination = request.form.get("destination", "").strip()
     owner       = request.form.get("owner",       "").strip()
+    toll_fee_raw = request.form.get("toll_fee",   "").strip()
     note        = request.form.get("note",        "").strip()
     month       = request.form.get("month",       "").strip()
 
     if not trip_date or not origin or not destination:
         flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
         return redirect(url_for("index", month=month or None))
+
+    try:
+        toll_fee = parse_money(toll_fee_raw)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index", month=month or trip_date[:7]))
 
     # ── parse image-delete ids (must belong to this trip) ──
     delete_ids: list[int] = []
@@ -582,10 +619,10 @@ def update_trip(trip_id: int):
         cursor.execute(
             """
             UPDATE trips
-            SET trip_date=%s, origin=%s, destination=%s, owner=%s, note=%s
+            SET trip_date=%s, origin=%s, destination=%s, owner=%s, toll_fee=%s, note=%s
             WHERE id=%s AND user_email=%s
             """,
-            (trip_date, origin, destination, owner, note, trip_id, user_email),
+            (trip_date, origin, destination, owner, toll_fee, note, trip_id, user_email),
         )
 
     # ── delete selected images ──
@@ -736,18 +773,19 @@ def export_monthly_pdf():
         Spacer(1, 14),
     ]
 
-    table_data = [["วันที่", "จาก", "ไป", "งานของ", "หมายเหตุ"]]
+    table_data = [["วันที่", "จาก", "ไป", "งานของ", "ค่าทางด่วน", "หมายเหตุ"]]
     for trip in sorted(trips, key=lambda item: item["trip_date"]):
         note = trip["note"] or "-"
         owner = trip["owner"] or "-"
-        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], owner, note])
+        toll_fee = f"{Decimal(trip['toll_fee']):,.2f}" if Decimal(trip["toll_fee"]) else "-"
+        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], owner, toll_fee, note])
 
     if len(table_data) == 1:
-        table_data.append(["-", "-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
+        table_data.append(["-", "-", "-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
 
     table = Table(
         table_data,
-        colWidths=[24 * mm, 42 * mm, 42 * mm, 30 * mm, 44 * mm],
+        colWidths=[23 * mm, 36 * mm, 36 * mm, 28 * mm, 27 * mm, 32 * mm],
         repeatRows=1,
     )
     table.setStyle(

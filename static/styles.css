@@ -848,6 +848,16 @@ h1 {
   letter-spacing: 0.02em;
 }
 
+.tl-toll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #d9bf84;
+}
+
 .tl-note {
   margin-top: 10px;
   padding-top: 10px;
@@ -1486,6 +1496,7 @@ h1 {
   .tl-route,
   .tl-place,
   .tl-note,
+  .tl-toll,
   .tl-owner {
     min-width: 0;
     overflow-wrap: anywhere;
