@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>My Transport {{ selected_month }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --ink: #15120b;
+        --muted: #6f6758;
+        --line: #d9d0bd;
+        --paper: #fffdf8;
+        --gold: #b69049;
+        --soft: #f5eddd;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        background: #f1ede4;
+        color: var(--ink);
+        font-family: 'Sarabun', sans-serif;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        padding: 12px;
+        background: rgba(21,18,11,0.92);
+        backdrop-filter: blur(12px);
+      }
+
+      .toolbar a,
+      .toolbar button {
+        height: 38px;
+        border: 1px solid rgba(182,144,73,0.42);
+        border-radius: 7px;
+        background: #2a2112;
+        color: #f8e4b4;
+        padding: 0 14px;
+        font: 600 13px 'Kanit', sans-serif;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 18px auto;
+        padding: 14mm;
+        background: var(--paper);
+        box-shadow: 0 20px 60px rgba(31,24,10,0.18);
+      }
+
+      .report-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        border-bottom: 2px solid var(--ink);
+        padding-bottom: 12px;
+      }
+
+      .title h1 {
+        margin: 0;
+        font: 700 30px/1 'Kanit', sans-serif;
+        letter-spacing: 0;
+      }
+
+      .title p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .user {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 210px;
+        justify-content: flex-end;
+        text-align: right;
+      }
+
+      .avatar {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 1px solid var(--gold);
+        background: var(--soft);
+      }
+
+      .avatar-fallback {
+        display: grid;
+        place-items: center;
+        font: 700 18px 'Kanit', sans-serif;
+        color: var(--ink);
+      }
+
+      .user strong {
+        display: block;
+        font: 600 13px 'Kanit', sans-serif;
+      }
+
+      .user span {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .summary {
+        display: flex;
+        gap: 10px;
+        margin: 14px 0;
+      }
+
+      .summary div {
+        flex: 1;
+        border: 1px solid var(--line);
+        background: var(--soft);
+        padding: 8px 10px;
+      }
+
+      .summary span {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .summary strong {
+        font: 700 18px 'Kanit', sans-serif;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 6px 7px;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+
+      th {
+        background: #ece2cf;
+        font: 600 10px 'Kanit', sans-serif;
+        text-align: left;
+      }
+
+      td { font-size: 10px; }
+
+      .date { width: 12%; }
+      .place { width: 17%; }
+      .owner { width: 14%; }
+      .vehicle { width: 12%; }
+      .toll { width: 12%; text-align: right; }
+      .note { width: 16%; }
+
+      .empty {
+        padding: 22px;
+        text-align: center;
+        color: var(--muted);
+      }
+
+      @page {
+        size: A4;
+        margin: 12mm;
+      }
+
+      @media print {
+        body {
+          background: #fff;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .toolbar { display: none; }
+
+        .page {
+          width: auto;
+          min-height: auto;
+          margin: 0;
+          padding: 0;
+          box-shadow: none;
+        }
+
+        thead { display: table-header-group; }
+        tr { page-break-inside: avoid; }
+      }
+
+      @media (max-width: 760px) {
+        .page {
+          width: auto;
+          min-height: 0;
+          margin: 0;
+          padding: 18px;
+          box-shadow: none;
+        }
+
+        .report-head {
+          flex-direction: column;
+        }
+
+        .user {
+          justify-content: flex-start;
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <a href="{{ url_for('index', month=selected_month, tab='list', _anchor='list') }}">กลับ</a>
+      <button type="button" onclick="window.print()">พิมพ์ / บันทึก PDF</button>
+    </div>
+
+    <main class="page">
+      <header class="report-head">
+        <div class="title">
+          <h1>My Transport</h1>
+          <p>สรุปรายเดือน {{ month_label }}</p>
+        </div>
+        <div class="user">
+          {% if current_user.picture %}
+            <img class="avatar" src="{{ current_user.picture }}" alt="">
+          {% else %}
+            <div class="avatar avatar-fallback">{{ (current_user.name or current_user.email or 'U')[:1] }}</div>
+          {% endif %}
+          <div>
+            <strong>{{ current_user.name or current_user.email }}</strong>
+            <span>{{ current_user.email }}</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="summary">
+        <div>
+          <span>งานวิ่ง</span>
+          <strong>{{ summary.count }}</strong>
+        </div>
+        <div>
+          <span>จำนวนวัน</span>
+          <strong>{{ summary.days }}</strong>
+        </div>
+      </section>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="date">วันที่</th>
+            <th class="place">จาก</th>
+            <th class="place">ไป</th>
+            <th class="owner">งานของ</th>
+            <th class="vehicle">ประเภทรถ</th>
+            <th class="toll">ค่าทางด่วน</th>
+            <th class="note">หมายเหตุ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for trip in trips %}
+            <tr>
+              <td>{{ trip.trip_date }}</td>
+              <td>{{ trip.origin }}</td>
+              <td>{{ trip.destination }}</td>
+              <td>{{ trip.owner or '-' }}</td>
+              <td>{{ trip.vehicle_type or '-' }}</td>
+              <td class="toll">{{ "{:,.2f}".format(trip.toll_fee|float) if trip.toll_fee|float else '-' }}</td>
+              <td>{{ trip.note or '-' }}</td>
+            </tr>
+          {% else %}
+            <tr>
+              <td class="empty" colspan="7">ยังไม่มีรายการในเดือนนี้</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </main>
+
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => window.print(), 350);
+      });
+    </script>
+  </body>
+</html>

@@ -56,7 +56,7 @@
             {% endif %}
             <strong>{{ current_user.name or current_user.email }}</strong>
           </div>
-          <a class="export-btn" href="{{ url_for('export_monthly_pdf', month=selected_month) }}">
+          <a class="export-btn" href="{{ url_for('export_monthly_report', month=selected_month) }}">
             <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
               <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
             </svg>
@@ -452,7 +452,7 @@
       document.querySelector('.export-btn')?.addEventListener('click', function() {
         const orig = this.innerHTML;
         this.classList.add('is-loading');
-        this.innerHTML = `<span class="btn-spinner"></span>กำลังสร้าง PDF...`;
+        this.innerHTML = `<span class="btn-spinner"></span>กำลังเปิดรายงาน...`;
         setTimeout(() => {
           this.classList.remove('is-loading');
           this.innerHTML = orig;

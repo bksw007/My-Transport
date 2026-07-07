@@ -993,6 +993,21 @@ def export_monthly_pdf():
     )
 
 
+@app.route("/export/monthly", methods=["GET"])
+def export_monthly_report():
+    selected_month = normalize_month_value(request.args.get("month"))
+    trips, summary = fetch_trips_for_pdf(selected_month)
+    month_label = datetime.strptime(selected_month, "%Y-%m").strftime("%B %Y")
+    return render_template(
+        "monthly_report.html",
+        trips=trips,
+        summary=summary,
+        current_user=get_current_user(),
+        selected_month=selected_month,
+        month_label=month_label,
+    )
+
+
 @app.route("/api/suggestions/<field>", methods=["GET"])
 def get_suggestions(field: str):
     if field not in VALID_SUGGESTION_FIELDS:
