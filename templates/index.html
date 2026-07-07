@@ -487,7 +487,7 @@
               </div>
               <div class="mf-field">
                 <label class="mf-label">ค่าทางด่วน</label>
-                <input class="mf-input" type="number" inputmode="decimal" min="0" step="0.01" name="toll_fee" value="${escAttr(d.tollFee || '0.00')}" placeholder="0.00">
+                <input class="mf-input" type="number" inputmode="decimal" min="0" step="0.01" name="toll_fee" value="${Number(d.tollFee || 0) > 0 ? escAttr(d.tollFee) : ''}" placeholder="0.00">
               </div>
               <div class="mf-field">
                 <label class="mf-label">หมายเหตุ</label>
