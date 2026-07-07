@@ -211,8 +211,16 @@
           align-items: center;
         }
 
-        thead { display: table-header-group; }
-        tr { page-break-inside: avoid; }
+        .report-table { break-inside: auto; }
+        .report-table thead {
+          display: table-header-group;
+          break-inside: avoid;
+        }
+        .report-table tbody { display: table-row-group; }
+        .report-table tr {
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
       }
 
       @media screen and (max-width: 760px) {
@@ -271,7 +279,7 @@
         </div>
       </section>
 
-      <table>
+      <table class="report-table">
         <thead>
           <tr>
             <th class="date">วันที่</th>
