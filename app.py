@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import urllib.request
 import uuid
 from contextlib import closing
 from datetime import date, datetime
@@ -30,11 +31,13 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from supabase import Client, create_client
 from werkzeug.utils import secure_filename
+from xml.sax.saxutils import escape
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -460,6 +463,24 @@ def fetch_all_suggestions() -> dict[str, list[dict]]:
     return suggestions
 
 
+def pdf_paragraph(value: object, style: ParagraphStyle, fallback: str = "-") -> Paragraph:
+    text = str(value or fallback)
+    return Paragraph(escape(text), style)
+
+
+def load_profile_image(picture_url: str | None, size: float) -> Image | None:
+    if not picture_url or not picture_url.startswith("https://"):
+        return None
+    try:
+        req = urllib.request.Request(picture_url, headers={"User-Agent": "MyTransportPDF/1.0"})
+        with urllib.request.urlopen(req, timeout=1.5) as response:
+            payload = response.read(512 * 1024)
+        ImageReader(BytesIO(payload))
+        return Image(BytesIO(payload), width=size, height=size)
+    except Exception:
+        return None
+
+
 def save_images(files: Iterable) -> list[dict]:
     saved_images: list[dict] = []
     storage_client = get_storage_client()
@@ -792,6 +813,9 @@ def delete_trip(trip_id: int):
 def export_monthly_pdf():
     selected_month = normalize_month_value(request.args.get("month"))
     trips, summary = fetch_trips_for_pdf(selected_month)
+    current_user = get_current_user() or {}
+    user_name = current_user.get("name") or current_user.get("email") or "-"
+    user_email = current_user.get("email") or "-"
     month_label = datetime.strptime(selected_month, "%Y-%m").strftime("%B %Y")
     export_filename = f"My Transport {selected_month}_{datetime.now().strftime('%H%M%S')}.pdf"
 
@@ -817,10 +841,74 @@ def export_monthly_pdf():
         leading=15,
         textColor=colors.HexColor("#333333"),
     )
+    small_style = ParagraphStyle(
+        "Small",
+        parent=body_style,
+        fontSize=8,
+        leading=11,
+        textColor=colors.HexColor("#666666"),
+    )
+    table_header_style = ParagraphStyle(
+        "TableHeader",
+        parent=body_style,
+        fontName=PDF_FONT_BOLD,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#111111"),
+    )
+    table_cell_style = ParagraphStyle(
+        "TableCell",
+        parent=body_style,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#222222"),
+    )
+
+    profile_image = load_profile_image(current_user.get("picture"), 12 * mm)
+    profile_mark = profile_image or Table(
+        [[pdf_paragraph((user_name or "?")[:1].upper(), table_header_style)]],
+        colWidths=[12 * mm],
+        rowHeights=[12 * mm],
+        style=TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f2e3bf")),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#111111")),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d7bd78")),
+            ]
+        ),
+    )
+    profile_table = Table(
+        [
+            [
+                profile_mark,
+                [
+                    Paragraph("ผู้ใช้งาน", small_style),
+                    pdf_paragraph(user_name, body_style),
+                    pdf_paragraph(user_email, small_style),
+                ],
+            ]
+        ],
+        colWidths=[15 * mm, 95 * mm],
+    )
+    profile_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
 
     story = [
         Paragraph("My Transport", title_style),
         Spacer(1, 6),
+        profile_table,
+        Spacer(1, 8),
         Paragraph(f"สรุปรายเดือน {month_label}", body_style),
         Spacer(1, 10),
         Paragraph(
@@ -830,16 +918,46 @@ def export_monthly_pdf():
         Spacer(1, 14),
     ]
 
-    table_data = [["วันที่", "จาก", "ไป", "งานของ", "ประเภทรถ", "ค่าทางด่วน", "หมายเหตุ"]]
+    table_data = [
+        [
+            pdf_paragraph("วันที่", table_header_style),
+            pdf_paragraph("จาก", table_header_style),
+            pdf_paragraph("ไป", table_header_style),
+            pdf_paragraph("งานของ", table_header_style),
+            pdf_paragraph("ประเภทรถ", table_header_style),
+            pdf_paragraph("ค่าทางด่วน", table_header_style),
+            pdf_paragraph("หมายเหตุ", table_header_style),
+        ]
+    ]
     for trip in trips:
         note = trip["note"] or "-"
         owner = trip["owner"] or "-"
         vehicle_type = trip["vehicle_type"] or "-"
         toll_fee = f"{Decimal(trip['toll_fee']):,.2f}" if Decimal(trip["toll_fee"]) else "-"
-        table_data.append([trip["trip_date"], trip["origin"], trip["destination"], owner, vehicle_type, toll_fee, note])
+        table_data.append(
+            [
+                pdf_paragraph(trip["trip_date"], table_cell_style),
+                pdf_paragraph(trip["origin"], table_cell_style),
+                pdf_paragraph(trip["destination"], table_cell_style),
+                pdf_paragraph(owner, table_cell_style),
+                pdf_paragraph(vehicle_type, table_cell_style),
+                pdf_paragraph(toll_fee, table_cell_style),
+                pdf_paragraph(note, table_cell_style),
+            ]
+        )
 
     if len(table_data) == 1:
-        table_data.append(["-", "-", "-", "-", "-", "-", "ยังไม่มีรายการในเดือนนี้"])
+        table_data.append(
+            [
+                pdf_paragraph("-", table_cell_style),
+                pdf_paragraph("-", table_cell_style),
+                pdf_paragraph("-", table_cell_style),
+                pdf_paragraph("-", table_cell_style),
+                pdf_paragraph("-", table_cell_style),
+                pdf_paragraph("-", table_cell_style),
+                pdf_paragraph("ยังไม่มีรายการในเดือนนี้", table_cell_style),
+            ]
+        )
 
     table = Table(
         table_data,
@@ -855,11 +973,11 @@ def export_monthly_pdf():
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#bbbbbb")),
                 ("FONTNAME", (0, 0), (-1, 0), PDF_FONT_BOLD),
                 ("FONTNAME", (0, 1), (-1, -1), PDF_FONT_REGULAR),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEADING", (0, 0), (-1, -1), 12),
-                ("TOPPADDING", (0, 0), (-1, -1), 7),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
