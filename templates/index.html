@@ -505,6 +505,20 @@
         setTimeout(() => { if (!overlay.classList.contains('is-open')) overlay.innerHTML = ''; }, 300);
       }
 
+      function openListLoadingModal() {
+        const box = document.createElement('div');
+        box.className = 'modal-box loading-modal';
+        box.innerHTML = `
+          <div class="loading-ring" aria-hidden="true"></div>
+          <h3 class="modal-title">กำลังเปลี่ยนเดือน</h3>
+          <p class="modal-warn">กำลังโหลดรายการประจำเดือนใหม่...</p>`;
+        openModal(box);
+      }
+
+      document.querySelector('.month-form')?.addEventListener('submit', function() {
+        openListLoadingModal();
+      });
+
       overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
       document.addEventListener('keydown', e => {
         if (e.key === 'Escape' && overlay.classList.contains('is-open')) closeModal();
