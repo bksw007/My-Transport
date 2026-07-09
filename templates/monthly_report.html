@@ -361,8 +361,8 @@
         const pageHeight = mmToPx(273);
         const reportHeadHeight = document.querySelector('.report-head')?.getBoundingClientRect().height || 0;
         const summaryHeight = document.querySelector('.summary')?.getBoundingClientRect().height || 0;
-        const firstPageLimit = Math.max(240, pageHeight - reportHeadHeight - summaryHeight - headerHeight - 56);
-        const nextPageLimit = Math.max(320, pageHeight - headerHeight - 32);
+        const firstPageLimit = Math.max(240, pageHeight - reportHeadHeight - summaryHeight - headerHeight - 32);
+        const nextPageLimit = Math.max(320, pageHeight - headerHeight - 16);
 
         const chunks = [];
         let chunk = [];
