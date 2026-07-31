@@ -289,6 +289,10 @@
           <span>จำนวนวัน</span>
           <strong>{{ summary.days }}</strong>
         </div>
+        <div>
+          <span>รวมค่าใช้จ่าย</span>
+          <strong>{{ "{:,.2f}".format(summary.total_expenses|float) }} บาท</strong>
+        </div>
       </section>
 
       <table class="report-table">
@@ -299,7 +303,7 @@
             <th class="place">ไป</th>
             <th class="owner">งานของ</th>
             <th class="vehicle">ประเภทรถ</th>
-            <th class="toll">ค่าทางด่วน</th>
+            <th class="toll">ค่าใช้จ่าย</th>
             <th class="note">หมายเหตุ</th>
           </tr>
         </thead>

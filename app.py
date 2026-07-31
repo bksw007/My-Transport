@@ -305,9 +305,9 @@ def parse_money(value: str | None) -> Decimal:
     try:
         amount = Decimal(cleaned)
     except InvalidOperation as exc:
-        raise ValueError("กรอกค่าทางด่วนเป็นตัวเลขเท่านั้น") from exc
+        raise ValueError("กรอกค่าใช้จ่ายเป็นตัวเลขเท่านั้น") from exc
     if amount < 0:
-        raise ValueError("ค่าทางด่วนต้องไม่ติดลบ")
+        raise ValueError("ค่าใช้จ่ายต้องไม่ติดลบ")
     return amount.quantize(Decimal("0.01"))
 
 
@@ -397,6 +397,7 @@ def fetch_trips(month_value: str | None, vehicle_type: str = "") -> tuple[list[d
         "count": len(trips),
         "days": len({trip["trip_date"] for trip in trips}),
         "attachments": sum(len(trip["images"]) for trip in trips),
+        "total_expenses": f"{sum((Decimal(trip['toll_fee']) for trip in trips), Decimal('0')):.2f}",
     }
     return trips, summary
 
@@ -447,6 +448,7 @@ def fetch_trips_for_pdf(month_value: str | None, vehicle_type: str = "") -> tupl
     summary = {
         "count": len(trips),
         "days": len({trip["trip_date"] for trip in trips}),
+        "total_expenses": f"{sum((Decimal(trip['toll_fee']) for trip in trips), Decimal('0')):.2f}",
     }
     return trips, summary
 
@@ -923,7 +925,10 @@ def export_monthly_pdf():
         Paragraph(f"สรุปรายเดือน {month_label}", body_style),
         Spacer(1, 10),
         Paragraph(
-            f"จำนวนงานวิ่ง {summary['count']} | จำนวนวัน {summary['days']}",
+            (
+                f"จำนวนงานวิ่ง {summary['count']} | จำนวนวัน {summary['days']} | "
+                f"รวมค่าใช้จ่าย {Decimal(summary['total_expenses']):,.2f} บาท"
+            ),
             body_style,
         ),
         Spacer(1, 14),
@@ -938,7 +943,7 @@ def export_monthly_pdf():
             pdf_paragraph("ไป", table_header_style),
             pdf_paragraph("งานของ", table_header_style),
             pdf_paragraph("ประเภทรถ", table_header_style),
-            pdf_paragraph("ค่าทางด่วน", table_header_style),
+            pdf_paragraph("ค่าใช้จ่าย", table_header_style),
             pdf_paragraph("หมายเหตุ", table_header_style),
         ]
     ]

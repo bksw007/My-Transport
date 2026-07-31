@@ -456,7 +456,7 @@ h1 {
 /* ── Stats row ──────────────────────────────────────────────────── */
 .stats-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -491,6 +491,17 @@ h1 {
   font-weight: 700;
   color: var(--gold-hi);
   line-height: 1;
+}
+
+.stat-value--money {
+  font-size: clamp(1.35rem, 3.5vw, 2rem);
+  white-space: nowrap;
+}
+
+.stat-value--money small {
+  font-size: 0.55em;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 /* ── Form card ──────────────────────────────────────────────────── */
@@ -1404,6 +1415,10 @@ h1 {
   .shell {
     width: 100%;
     padding: 20px 12px 56px;
+  }
+
+  .stats-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .topbar {
