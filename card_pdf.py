@@ -39,6 +39,9 @@ THAI_MONTHS = (
     "ธันวาคม",
 )
 
+PDF_IMAGE_QUALITY = 65
+PDF_IMAGE_PIXELS_PER_MM = 6
+
 
 def _paragraph(value: object, style: ParagraphStyle, fallback: str = "-") -> Paragraph:
     return Paragraph(escape(str(value or fallback)), style)
@@ -85,8 +88,8 @@ def _photo_flowable(
     try:
         with PillowImage.open(BytesIO(payload)) as source:
             source = ImageOps.exif_transpose(source).convert("RGB")
-            pixel_width = max(320, int(width / mm * 18))
-            pixel_height = max(240, int(height / mm * 18))
+            pixel_width = max(220, int(width / mm * PDF_IMAGE_PIXELS_PER_MM))
+            pixel_height = max(170, int(height / mm * PDF_IMAGE_PIXELS_PER_MM))
             fitted = ImageOps.fit(
                 source,
                 (pixel_width, pixel_height),
@@ -94,7 +97,13 @@ def _photo_flowable(
                 centering=(0.5, 0.5),
             )
             output = BytesIO()
-            fitted.save(output, format="JPEG", quality=84, optimize=True)
+            fitted.save(
+                output,
+                format="JPEG",
+                quality=PDF_IMAGE_QUALITY,
+                optimize=False,
+                subsampling=2,
+            )
             output.seek(0)
         return Image(output, width=width, height=height)
     except Exception:
@@ -106,15 +115,8 @@ def _photo_strip(
     upload_dir: Path,
     styles: dict[str, ParagraphStyle],
 ) -> Table:
-    loaded_photos = []
-    for image_record in images:
-        photo = _photo_flowable(image_record, upload_dir, 32 * mm, 27 * mm)
-        if photo is not None:
-            loaded_photos.append(photo)
-        if len(loaded_photos) == 2:
-            break
-
-    if not loaded_photos:
+    primary_images = images[:2]
+    if not primary_images:
         return Table(
             [[Paragraph("ไม่มีรูปแนบ", styles["photo_empty"])]],
             colWidths=[68 * mm],
@@ -129,11 +131,29 @@ def _photo_strip(
             ),
         )
 
-    cells: list[object] = list(loaded_photos)
-    widths = [32 * mm] * len(cells)
-    if len(cells) == 1:
+    cells: list[object] = []
+    widths = [32 * mm] * len(primary_images)
+    if len(primary_images) == 1:
         widths = [68 * mm]
-        cells = [_photo_flowable(images[0], upload_dir, 68 * mm, 27 * mm) or cells[0]]
+        photo_width = 68 * mm
+    else:
+        photo_width = 32 * mm
+
+    for image_record in primary_images:
+        photo = _photo_flowable(image_record, upload_dir, photo_width, 27 * mm)
+        cells.append(photo or Table(
+            [[Paragraph("โหลดรูปไม่ได้", styles["photo_empty"])]],
+            colWidths=[photo_width],
+            rowHeights=[27 * mm],
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3F0E8")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D9D1C1")),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            ),
+        ))
 
     strip = Table([cells], colWidths=widths, rowHeights=[27 * mm], hAlign="LEFT")
     strip.setStyle(
@@ -150,12 +170,85 @@ def _photo_strip(
     return strip
 
 
+def _additional_photo_row(
+    image_records: list[dict],
+    *,
+    first_number: int,
+    total_images: int,
+    trip_index: int,
+    upload_dir: Path,
+    styles: dict[str, ParagraphStyle],
+) -> Table:
+    photo_width = 38.5 * mm
+    photo_height = 28 * mm
+    cells: list[object] = []
+    for image_record in image_records:
+        photo = _photo_flowable(image_record, upload_dir, photo_width, photo_height)
+        cells.append(photo or Table(
+            [[Paragraph("โหลดรูปไม่ได้", styles["photo_empty"])]],
+            colWidths=[photo_width],
+            rowHeights=[photo_height],
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3F0E8")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D9D1C1")),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ]
+            ),
+        ))
+
+    gallery = Table(
+        [cells],
+        colWidths=[40.5 * mm] * len(cells),
+        rowHeights=[30 * mm],
+        hAlign="CENTER",
+    )
+    gallery.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1 * mm),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 1 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 1 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1 * mm),
+            ]
+        )
+    )
+
+    last_number = first_number + len(image_records) - 1
+    heading = Paragraph(
+        f"งาน #{trip_index:02d} · รูปเพิ่มเติม {first_number}-{last_number} จาก {total_images} รูป",
+        styles["gallery_heading"],
+    )
+    block = Table([[heading], [gallery]], colWidths=[170 * mm], hAlign="CENTER")
+    block.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#E9DFC9")),
+                ("BACKGROUND", (0, 1), (0, 1), colors.white),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#CFC5B2")),
+                ("LEFTPADDING", (0, 0), (0, 0), 4 * mm),
+                ("RIGHTPADDING", (0, 0), (0, 0), 4 * mm),
+                ("TOPPADDING", (0, 0), (0, 0), 1.8 * mm),
+                ("BOTTOMPADDING", (0, 0), (0, 0), 1.8 * mm),
+                ("LEFTPADDING", (0, 1), (0, 1), 4 * mm),
+                ("RIGHTPADDING", (0, 1), (0, 1), 4 * mm),
+                ("TOPPADDING", (0, 1), (0, 1), 2 * mm),
+                ("BOTTOMPADDING", (0, 1), (0, 1), 2 * mm),
+            ]
+        )
+    )
+    return block
+
+
 def _trip_card(
     trip: dict,
     index: int,
     upload_dir: Path,
     styles: dict[str, ParagraphStyle],
-) -> KeepTogether:
+) -> list[object]:
     date_value = datetime.strptime(trip["trip_date"], "%Y-%m-%d")
     date_label = date_value.strftime("%d/%m/%Y")
     route = f"{trip.get('origin') or '-'}  →  {trip.get('destination') or '-'}"
@@ -203,12 +296,13 @@ def _trip_card(
         )
     )
 
-    photos = _photo_strip(list(trip.get("images") or []), upload_dir, styles)
-    image_count = len(trip.get("images") or [])
+    images = list(trip.get("images") or [])
+    photos = _photo_strip(images, upload_dir, styles)
+    image_count = len(images)
     photo_content: list[object] = [photos]
     if image_count > 2:
         photo_content.append(Spacer(1, 1.2 * mm))
-        photo_content.append(Paragraph(f"แสดง 2 จาก {image_count} รูป", styles["photo_count"]))
+        photo_content.append(Paragraph(f"มีรูปเพิ่มเติมอีก {image_count - 2} รูป", styles["photo_count"]))
 
     body = Table(
         [[info, photo_content]],
@@ -260,7 +354,23 @@ def _trip_card(
             ]
         )
     )
-    return KeepTogether([card, Spacer(1, 5 * mm)])
+    additional_images = images[2:]
+    flowables: list[object] = [
+        KeepTogether([card, Spacer(1, 2 * mm if additional_images else 5 * mm)])
+    ]
+    for offset in range(0, len(additional_images), 4):
+        row_images = additional_images[offset:offset + 4]
+        row = _additional_photo_row(
+            row_images,
+            first_number=offset + 3,
+            total_images=image_count,
+            trip_index=index,
+            upload_dir=upload_dir,
+            styles=styles,
+        )
+        is_last_row = offset + 4 >= len(additional_images)
+        flowables.append(KeepTogether([row, Spacer(1, 5 * mm if is_last_row else 2 * mm)]))
+    return flowables
 
 
 def build_card_report(
@@ -299,6 +409,7 @@ def build_card_report(
         "note": ParagraphStyle("CardNote", parent=sample["BodyText"], fontName=font_regular, fontSize=8.5, leading=12, textColor=colors.HexColor("#494339")),
         "photo_empty": ParagraphStyle("PhotoEmpty", parent=sample["BodyText"], fontName=font_regular, fontSize=8, leading=11, textColor=colors.HexColor("#9A9285"), alignment=1),
         "photo_count": ParagraphStyle("PhotoCount", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.HexColor("#81786A"), alignment=2),
+        "gallery_heading": ParagraphStyle("GalleryHeading", parent=sample["BodyText"], fontName=font_bold, fontSize=8, leading=11, textColor=colors.HexColor("#5C4A2C")),
         "empty": ParagraphStyle("Empty", parent=sample["BodyText"], fontName=font_regular, fontSize=11, leading=16, textColor=colors.HexColor("#746C5E"), alignment=1),
         "footer": ParagraphStyle("Footer", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=10, textColor=colors.HexColor("#8B8377")),
     }
@@ -335,7 +446,7 @@ def build_card_report(
 
     if trips:
         for index, trip in enumerate(trips, start=1):
-            story.append(_trip_card(trip, index, upload_dir, styles))
+            story.extend(_trip_card(trip, index, upload_dir, styles))
     else:
         story.append(Table([[Paragraph("ยังไม่มีรายการในเดือนนี้", styles["empty"])]], colWidths=[170 * mm], rowHeights=[55 * mm], style=TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3EFE6")), ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#D7CDBA")), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")])))
 
