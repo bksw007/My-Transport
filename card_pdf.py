@@ -110,6 +110,32 @@ def _photo_flowable(
         return None
 
 
+def _profile_flowable(picture_url: str | None, size: float) -> Image | None:
+    if not picture_url or not picture_url.startswith("https://"):
+        return None
+    try:
+        request = urllib.request.Request(
+            picture_url,
+            headers={"User-Agent": "MyTransportCardPDF/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            payload = response.read(512 * 1024)
+        with PillowImage.open(BytesIO(payload)) as source:
+            source = ImageOps.exif_transpose(source).convert("RGB")
+            fitted = ImageOps.fit(
+                source,
+                (180, 180),
+                method=PillowImage.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            output = BytesIO()
+            fitted.save(output, format="JPEG", quality=PDF_IMAGE_QUALITY, subsampling=2)
+            output.seek(0)
+        return Image(output, width=size, height=size)
+    except Exception:
+        return None
+
+
 def _photo_strip(
     images: list[dict],
     upload_dir: Path,
@@ -120,7 +146,7 @@ def _photo_strip(
         return Table(
             [[Paragraph("ไม่มีรูปแนบ", styles["photo_empty"])]],
             colWidths=[68 * mm],
-            rowHeights=[27 * mm],
+            rowHeights=[21 * mm],
             style=TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3F0E8")),
@@ -140,11 +166,11 @@ def _photo_strip(
         photo_width = 32 * mm
 
     for image_record in primary_images:
-        photo = _photo_flowable(image_record, upload_dir, photo_width, 27 * mm)
+        photo = _photo_flowable(image_record, upload_dir, photo_width, 21 * mm)
         cells.append(photo or Table(
             [[Paragraph("โหลดรูปไม่ได้", styles["photo_empty"])]],
             colWidths=[photo_width],
-            rowHeights=[27 * mm],
+            rowHeights=[21 * mm],
             style=TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3F0E8")),
@@ -155,7 +181,7 @@ def _photo_strip(
             ),
         ))
 
-    strip = Table([cells], colWidths=widths, rowHeights=[27 * mm], hAlign="LEFT")
+    strip = Table([cells], colWidths=widths, rowHeights=[21 * mm], hAlign="LEFT")
     strip.setStyle(
         TableStyle(
             [
@@ -180,7 +206,7 @@ def _additional_photo_row(
     styles: dict[str, ParagraphStyle],
 ) -> Table:
     photo_width = 38.5 * mm
-    photo_height = 28 * mm
+    photo_height = 22 * mm
     cells: list[object] = []
     for image_record in image_records:
         photo = _photo_flowable(image_record, upload_dir, photo_width, photo_height)
@@ -201,7 +227,7 @@ def _additional_photo_row(
     gallery = Table(
         [cells],
         colWidths=[40.5 * mm] * len(cells),
-        rowHeights=[30 * mm],
+        rowHeights=[24 * mm],
         hAlign="CENTER",
     )
     gallery.setStyle(
@@ -231,12 +257,12 @@ def _additional_photo_row(
                 ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#CFC5B2")),
                 ("LEFTPADDING", (0, 0), (0, 0), 4 * mm),
                 ("RIGHTPADDING", (0, 0), (0, 0), 4 * mm),
-                ("TOPPADDING", (0, 0), (0, 0), 1.8 * mm),
-                ("BOTTOMPADDING", (0, 0), (0, 0), 1.8 * mm),
+                ("TOPPADDING", (0, 0), (0, 0), 1.2 * mm),
+                ("BOTTOMPADDING", (0, 0), (0, 0), 1.2 * mm),
                 ("LEFTPADDING", (0, 1), (0, 1), 4 * mm),
                 ("RIGHTPADDING", (0, 1), (0, 1), 4 * mm),
-                ("TOPPADDING", (0, 1), (0, 1), 2 * mm),
-                ("BOTTOMPADDING", (0, 1), (0, 1), 2 * mm),
+                ("TOPPADDING", (0, 1), (0, 1), 1.2 * mm),
+                ("BOTTOMPADDING", (0, 1), (0, 1), 1.2 * mm),
             ]
         )
     )
@@ -256,10 +282,10 @@ def _trip_card(
 
     card_header = Table(
         [[
-            Paragraph(f"งาน #{index:02d}<br/><b>{date_label}</b>", styles["date"]),
+            Paragraph(f"งาน #{index:02d} · {date_label}", styles["date"]),
             _paragraph(route, styles["route"]),
         ]],
-        colWidths=[29 * mm, 141 * mm],
+        colWidths=[38 * mm, 132 * mm],
     )
     card_header.setStyle(
         TableStyle(
@@ -267,11 +293,11 @@ def _trip_card(
                 ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#B98C3D")),
                 ("BACKGROUND", (1, 0), (1, 0), colors.HexColor("#1C1A16")),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (0, 0), 4 * mm),
-                ("RIGHTPADDING", (0, 0), (0, 0), 3 * mm),
-                ("TOPPADDING", (0, 0), (-1, -1), 3 * mm),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
-                ("LEFTPADDING", (1, 0), (1, 0), 5 * mm),
+                ("LEFTPADDING", (0, 0), (0, 0), 3 * mm),
+                ("RIGHTPADDING", (0, 0), (0, 0), 2 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 1.7 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.7 * mm),
+                ("LEFTPADDING", (1, 0), (1, 0), 4 * mm),
             ]
         )
     )
@@ -290,8 +316,8 @@ def _trip_card(
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
-                ("TOPPADDING", (0, 0), (-1, -1), 0.8 * mm),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0.8 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 0.25 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0.25 * mm),
             ]
         )
     )
@@ -300,9 +326,6 @@ def _trip_card(
     photos = _photo_strip(images, upload_dir, styles)
     image_count = len(images)
     photo_content: list[object] = [photos]
-    if image_count > 2:
-        photo_content.append(Spacer(1, 1.2 * mm))
-        photo_content.append(Paragraph(f"มีรูปเพิ่มเติมอีก {image_count - 2} รูป", styles["photo_count"]))
 
     body = Table(
         [[info, photo_content]],
@@ -312,12 +335,12 @@ def _trip_card(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (0, 0), 5 * mm),
-                ("RIGHTPADDING", (0, 0), (0, 0), 3 * mm),
+                ("LEFTPADDING", (0, 0), (0, 0), 4 * mm),
+                ("RIGHTPADDING", (0, 0), (0, 0), 2 * mm),
                 ("LEFTPADDING", (1, 0), (1, 0), 0),
                 ("RIGHTPADDING", (1, 0), (1, 0), 2 * mm),
-                ("TOPPADDING", (0, 0), (-1, -1), 4 * mm),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 2 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2 * mm),
             ]
         )
     )
@@ -331,12 +354,12 @@ def _trip_card(
             [
                 ("LINEABOVE", (0, 0), (-1, 0), 0.5, colors.HexColor("#DDD6C8")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (0, 0), 5 * mm),
+                ("LEFTPADDING", (0, 0), (0, 0), 4 * mm),
                 ("RIGHTPADDING", (0, 0), (0, 0), 2 * mm),
                 ("LEFTPADDING", (1, 0), (1, 0), 0),
                 ("RIGHTPADDING", (1, 0), (1, 0), 3 * mm),
-                ("TOPPADDING", (0, 0), (-1, -1), 2.5 * mm),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 1.2 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.4 * mm),
             ]
         )
     )
@@ -356,7 +379,7 @@ def _trip_card(
     )
     additional_images = images[2:]
     flowables: list[object] = [
-        KeepTogether([card, Spacer(1, 2 * mm if additional_images else 5 * mm)])
+        KeepTogether([card, Spacer(1, 1.5 * mm if additional_images else 2.8 * mm)])
     ]
     for offset in range(0, len(additional_images), 4):
         row_images = additional_images[offset:offset + 4]
@@ -369,7 +392,7 @@ def _trip_card(
             styles=styles,
         )
         is_last_row = offset + 4 >= len(additional_images)
-        flowables.append(KeepTogether([row, Spacer(1, 5 * mm if is_last_row else 2 * mm)]))
+        flowables.append(KeepTogether([row, Spacer(1, 2.8 * mm if is_last_row else 1.5 * mm)]))
     return flowables
 
 
@@ -391,64 +414,94 @@ def build_card_report(
         rightMargin=14 * mm,
         leftMargin=14 * mm,
         topMargin=14 * mm,
-        bottomMargin=16 * mm,
+        bottomMargin=14 * mm,
         title=f"My Transport - {_month_label(selected_month)}",
         author=current_user.get("name") or current_user.get("email") or "My Transport",
     )
     sample = getSampleStyleSheet()
     styles = {
-        "title": ParagraphStyle("CardTitle", parent=sample["Title"], fontName=font_bold, fontSize=23, leading=27, textColor=colors.HexColor("#171510"), alignment=0),
-        "subtitle": ParagraphStyle("CardSubtitle", parent=sample["BodyText"], fontName=font_regular, fontSize=9, leading=13, textColor=colors.HexColor("#6D665A")),
-        "summary_label": ParagraphStyle("SummaryLabel", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=10, textColor=colors.HexColor("#746C5E")),
-        "summary_value": ParagraphStyle("SummaryValue", parent=sample["BodyText"], fontName=font_bold, fontSize=14, leading=18, textColor=colors.HexColor("#1C1A16")),
-        "date": ParagraphStyle("CardDate", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=11, textColor=colors.white),
-        "route": ParagraphStyle("CardRoute", parent=sample["BodyText"], fontName=font_bold, fontSize=13, leading=17, textColor=colors.white),
-        "label": ParagraphStyle("CardLabel", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=11, textColor=colors.HexColor("#81786A")),
-        "value": ParagraphStyle("CardValue", parent=sample["BodyText"], fontName=font_bold, fontSize=9.5, leading=13, textColor=colors.HexColor("#29251E")),
-        "money": ParagraphStyle("CardMoney", parent=sample["BodyText"], fontName=font_bold, fontSize=10, leading=13, textColor=colors.HexColor("#9A6D20")),
-        "note": ParagraphStyle("CardNote", parent=sample["BodyText"], fontName=font_regular, fontSize=8.5, leading=12, textColor=colors.HexColor("#494339")),
-        "photo_empty": ParagraphStyle("PhotoEmpty", parent=sample["BodyText"], fontName=font_regular, fontSize=8, leading=11, textColor=colors.HexColor("#9A9285"), alignment=1),
-        "photo_count": ParagraphStyle("PhotoCount", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.HexColor("#81786A"), alignment=2),
-        "gallery_heading": ParagraphStyle("GalleryHeading", parent=sample["BodyText"], fontName=font_bold, fontSize=8, leading=11, textColor=colors.HexColor("#5C4A2C")),
+        "title": ParagraphStyle("CardTitle", parent=sample["Title"], fontName=font_bold, fontSize=20, leading=23, textColor=colors.HexColor("#111111"), alignment=0),
+        "subtitle": ParagraphStyle("CardSubtitle", parent=sample["BodyText"], fontName=font_regular, fontSize=8.5, leading=11, textColor=colors.HexColor("#333333")),
+        "header_small": ParagraphStyle("HeaderSmall", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.HexColor("#666666")),
+        "date": ParagraphStyle("CardDate", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.white),
+        "route": ParagraphStyle("CardRoute", parent=sample["BodyText"], fontName=font_bold, fontSize=11, leading=13, textColor=colors.white),
+        "label": ParagraphStyle("CardLabel", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.HexColor("#81786A")),
+        "value": ParagraphStyle("CardValue", parent=sample["BodyText"], fontName=font_bold, fontSize=8.5, leading=10, textColor=colors.HexColor("#29251E")),
+        "money": ParagraphStyle("CardMoney", parent=sample["BodyText"], fontName=font_bold, fontSize=8.5, leading=10, textColor=colors.HexColor("#9A6D20")),
+        "note": ParagraphStyle("CardNote", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=9.5, textColor=colors.HexColor("#494339")),
+        "photo_empty": ParagraphStyle("PhotoEmpty", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.HexColor("#9A9285"), alignment=1),
+        "gallery_heading": ParagraphStyle("GalleryHeading", parent=sample["BodyText"], fontName=font_bold, fontSize=7.5, leading=9, textColor=colors.HexColor("#5C4A2C")),
         "empty": ParagraphStyle("Empty", parent=sample["BodyText"], fontName=font_regular, fontSize=11, leading=16, textColor=colors.HexColor("#746C5E"), alignment=1),
-        "footer": ParagraphStyle("Footer", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=10, textColor=colors.HexColor("#8B8377")),
     }
 
     user_name = current_user.get("name") or current_user.get("email") or "-"
-    header = Table(
-        [[
-            [Paragraph("MY TRANSPORT", styles["title"]), Paragraph(f"รายงานแบบการ์ด · {_month_label(selected_month)}", styles["subtitle"])],
-            [Paragraph("จัดทำโดย", styles["summary_label"]), _paragraph(user_name, styles["value"])],
-        ]],
-        colWidths=[124 * mm, 46 * mm],
+    user_email = current_user.get("email") or "-"
+    profile_mark = _profile_flowable(current_user.get("picture"), 10 * mm) or Table(
+        [[_paragraph((user_name or "?")[:1].upper(), styles["value"])]],
+        colWidths=[10 * mm],
+        rowHeights=[10 * mm],
+        style=TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F2E3BF")),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D7BD78")),
+            ]
+        ),
     )
-    header.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("ALIGN", (1, 0), (1, 0), "RIGHT"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+    profile_table = Table(
+        [[
+            profile_mark,
+            [
+                Paragraph("ผู้ใช้งาน", styles["header_small"]),
+                _paragraph(user_name, styles["subtitle"]),
+                _paragraph(user_email, styles["header_small"]),
+            ],
+        ]],
+        colWidths=[13 * mm, 100 * mm],
+    )
+    profile_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
 
-    summary_items = [
-        ("งานวิ่ง", str(summary.get("count", 0))),
-        ("จำนวนวัน", str(summary.get("days", 0))),
-        ("รูปแนบ", str(summary.get("attachments", 0))),
-        ("ค่าใช้จ่ายรวม", f"{Decimal(str(summary.get('total_expenses') or '0')):,.2f} บาท"),
+    story: list[object] = [
+        Paragraph("My Transport", styles["title"]),
+        Spacer(1, 1.2 * mm),
+        profile_table,
+        Spacer(1, 1.5 * mm),
+        Paragraph(f"สรุปรายเดือน {_month_label(selected_month)}", styles["subtitle"]),
     ]
-    summary_table = Table(
-        [[
-            [Paragraph(label, styles["summary_label"]), Paragraph(value, styles["summary_value"])]
-            for label, value in summary_items
-        ]],
-        colWidths=[42.5 * mm] * 4,
-    )
-    summary_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3EFE6")), ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#D7CDBA")), ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D7CDBA")), ("LEFTPADDING", (0, 0), (-1, -1), 4 * mm), ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm), ("TOPPADDING", (0, 0), (-1, -1), 2.5 * mm), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5 * mm), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-
-    story: list[object] = [header, Spacer(1, 5 * mm)]
     if selected_vehicle_type:
-        story.extend([Paragraph(f"กรองประเภทรถ: {escape(selected_vehicle_type)}", styles["subtitle"]), Spacer(1, 2 * mm)])
-    story.extend([summary_table, Spacer(1, 7 * mm)])
+        story.append(Paragraph(f"ประเภทรถ: {escape(selected_vehicle_type)}", styles["subtitle"]))
+    story.extend(
+        [
+            Spacer(1, 1 * mm),
+            Paragraph(
+                (
+                    f"จำนวนงานวิ่ง {summary.get('count', 0)} | "
+                    f"จำนวนวัน {summary.get('days', 0)} | "
+                    f"รูปแนบ {summary.get('attachments', 0)} | "
+                    f"รวมค่าใช้จ่าย {Decimal(str(summary.get('total_expenses') or '0')):,.2f} บาท"
+                ),
+                styles["subtitle"],
+            ),
+            Spacer(1, 3.5 * mm),
+        ]
+    )
 
     if trips:
         for index, trip in enumerate(trips, start=1):
             story.extend(_trip_card(trip, index, upload_dir, styles))
     else:
-        story.append(Table([[Paragraph("ยังไม่มีรายการในเดือนนี้", styles["empty"])]], colWidths=[170 * mm], rowHeights=[55 * mm], style=TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3EFE6")), ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#D7CDBA")), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")])))
+        story.append(Table([[Paragraph("ยังไม่มีรายการในเดือนนี้", styles["empty"])]], colWidths=[170 * mm], rowHeights=[35 * mm], style=TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F3EFE6")), ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#D7CDBA")), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")])))
 
     def draw_page(canvas, document) -> None:
         canvas.saveState()
