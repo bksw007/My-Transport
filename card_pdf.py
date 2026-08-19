@@ -7,13 +7,14 @@ from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from PIL import Image as PillowImage, ImageOps
+from PIL import Image as PillowImage, ImageDraw, ImageOps
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import (
     Image,
+    Flowable,
     KeepTogether,
     Paragraph,
     SimpleDocTemplate,
@@ -41,6 +42,25 @@ THAI_MONTHS = (
 
 PDF_IMAGE_QUALITY = 65
 PDF_IMAGE_PIXELS_PER_MM = 6
+
+
+class ProfileBadge(Flowable):
+    def __init__(self, text: str, size: float, font_name: str) -> None:
+        super().__init__()
+        self.text = text
+        self.width = size
+        self.height = size
+        self.font_name = font_name
+
+    def draw(self) -> None:
+        font_size = 12
+        self.canv.setFillColor(colors.HexColor("#F5EDDD"))
+        self.canv.setStrokeColor(colors.HexColor("#B69049"))
+        self.canv.setLineWidth(0.7)
+        self.canv.circle(self.width / 2, self.height / 2, self.width / 2 - 0.5, fill=1, stroke=1)
+        self.canv.setFillColor(colors.HexColor("#15120B"))
+        self.canv.setFont(self.font_name, font_size)
+        self.canv.drawCentredString(self.width / 2, self.height / 2 - font_size * 0.32, self.text)
 
 
 def _paragraph(value: object, style: ParagraphStyle, fallback: str = "-") -> Paragraph:
@@ -128,8 +148,17 @@ def _profile_flowable(picture_url: str | None, size: float) -> Image | None:
                 method=PillowImage.Resampling.LANCZOS,
                 centering=(0.5, 0.5),
             )
+            mask = PillowImage.new("L", (180, 180), 0)
+            ImageDraw.Draw(mask).ellipse((2, 2, 177, 177), fill=255)
+            avatar = PillowImage.new("RGBA", (180, 180), (255, 255, 255, 0))
+            avatar.paste(fitted, (0, 0), mask)
+            ImageDraw.Draw(avatar).ellipse(
+                (2, 2, 177, 177),
+                outline=(182, 144, 73, 255),
+                width=3,
+            )
             output = BytesIO()
-            fitted.save(output, format="JPEG", quality=PDF_IMAGE_QUALITY, subsampling=2)
+            avatar.save(output, format="PNG", optimize=False)
             output.seek(0)
         return Image(output, width=size, height=size)
     except Exception:
@@ -282,10 +311,10 @@ def _trip_card(
 
     card_header = Table(
         [[
-            Paragraph(f"งาน #{index:02d} · {date_label}", styles["date"]),
+            Paragraph(f"งาน #{index:02d}<br/>{date_label}", styles["date"]),
             _paragraph(route, styles["route"]),
         ]],
-        colWidths=[38 * mm, 132 * mm],
+        colWidths=[29 * mm, 141 * mm],
     )
     card_header.setStyle(
         TableStyle(
@@ -295,8 +324,8 @@ def _trip_card(
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (0, 0), 3 * mm),
                 ("RIGHTPADDING", (0, 0), (0, 0), 2 * mm),
-                ("TOPPADDING", (0, 0), (-1, -1), 1.7 * mm),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.7 * mm),
+                ("TOPPADDING", (0, 0), (-1, -1), 1.2 * mm),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1.2 * mm),
                 ("LEFTPADDING", (1, 0), (1, 0), 4 * mm),
             ]
         )
@@ -420,10 +449,13 @@ def build_card_report(
     )
     sample = getSampleStyleSheet()
     styles = {
-        "title": ParagraphStyle("CardTitle", parent=sample["Title"], fontName=font_bold, fontSize=20, leading=23, textColor=colors.HexColor("#111111"), alignment=0),
-        "subtitle": ParagraphStyle("CardSubtitle", parent=sample["BodyText"], fontName=font_regular, fontSize=8.5, leading=11, textColor=colors.HexColor("#333333")),
-        "header_small": ParagraphStyle("HeaderSmall", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.HexColor("#666666")),
-        "date": ParagraphStyle("CardDate", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.white),
+        "title": ParagraphStyle("CardTitle", parent=sample["Title"], fontName=font_bold, fontSize=22.5, leading=23, textColor=colors.HexColor("#15120B"), alignment=0),
+        "subtitle": ParagraphStyle("CardSubtitle", parent=sample["BodyText"], fontName=font_regular, fontSize=8.5, leading=11, textColor=colors.HexColor("#6F6758")),
+        "user_name": ParagraphStyle("UserName", parent=sample["BodyText"], fontName=font_bold, fontSize=9.5, leading=11, textColor=colors.HexColor("#15120B"), alignment=2),
+        "user_email": ParagraphStyle("UserEmail", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=9, textColor=colors.HexColor("#6F6758"), alignment=2),
+        "badge_label": ParagraphStyle("BadgeLabel", parent=sample["BodyText"], fontName=font_regular, fontSize=7.5, leading=9, textColor=colors.HexColor("#6F6758")),
+        "badge_value": ParagraphStyle("BadgeValue", parent=sample["BodyText"], fontName=font_bold, fontSize=13.5, leading=16, textColor=colors.HexColor("#15120B")),
+        "date": ParagraphStyle("CardDate", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=8, textColor=colors.white),
         "route": ParagraphStyle("CardRoute", parent=sample["BodyText"], fontName=font_bold, fontSize=11, leading=13, textColor=colors.white),
         "label": ParagraphStyle("CardLabel", parent=sample["BodyText"], fontName=font_regular, fontSize=7, leading=9, textColor=colors.HexColor("#81786A")),
         "value": ParagraphStyle("CardValue", parent=sample["BodyText"], fontName=font_bold, fontSize=8.5, leading=10, textColor=colors.HexColor("#29251E")),
@@ -436,31 +468,23 @@ def build_card_report(
 
     user_name = current_user.get("name") or current_user.get("email") or "-"
     user_email = current_user.get("email") or "-"
-    profile_mark = _profile_flowable(current_user.get("picture"), 10 * mm) or Table(
-        [[_paragraph((user_name or "?")[:1].upper(), styles["value"])]],
-        colWidths=[10 * mm],
-        rowHeights=[10 * mm],
-        style=TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F2E3BF")),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D7BD78")),
-            ]
-        ),
+    profile_mark = _profile_flowable(current_user.get("picture"), 11 * mm) or ProfileBadge(
+        (user_name or "?")[:1].upper(),
+        11 * mm,
+        font_bold,
     )
-    profile_table = Table(
+    user_table = Table(
         [[
             profile_mark,
             [
-                Paragraph("ผู้ใช้งาน", styles["header_small"]),
-                _paragraph(user_name, styles["subtitle"]),
-                _paragraph(user_email, styles["header_small"]),
+                _paragraph(user_name, styles["user_name"]),
+                _paragraph(user_email, styles["user_email"]),
             ],
         ]],
-        colWidths=[13 * mm, 100 * mm],
+        colWidths=[14 * mm, 46 * mm],
+        hAlign="RIGHT",
     )
-    profile_table.setStyle(
+    user_table.setStyle(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -472,30 +496,83 @@ def build_card_report(
         )
     )
 
-    story: list[object] = [
+    title_content: list[object] = [
         Paragraph("My Transport", styles["title"]),
-        Spacer(1, 1.2 * mm),
-        profile_table,
-        Spacer(1, 1.5 * mm),
+        Spacer(1, 2 * mm),
         Paragraph(f"สรุปรายเดือน {_month_label(selected_month)}", styles["subtitle"]),
     ]
     if selected_vehicle_type:
-        story.append(Paragraph(f"ประเภทรถ: {escape(selected_vehicle_type)}", styles["subtitle"]))
-    story.extend(
-        [
-            Spacer(1, 1 * mm),
-            Paragraph(
-                (
-                    f"จำนวนงานวิ่ง {summary.get('count', 0)} | "
-                    f"จำนวนวัน {summary.get('days', 0)} | "
-                    f"รูปแนบ {summary.get('attachments', 0)} | "
-                    f"รวมค่าใช้จ่าย {Decimal(str(summary.get('total_expenses') or '0')):,.2f} บาท"
-                ),
-                styles["subtitle"],
-            ),
-            Spacer(1, 3.5 * mm),
-        ]
+        title_content.extend(
+            [
+                Spacer(1, 1 * mm),
+                Paragraph(f"ประเภทรถ: {escape(selected_vehicle_type)}", styles["subtitle"]),
+            ]
+        )
+
+    report_header = Table(
+        [[title_content, user_table]],
+        colWidths=[110 * mm, 60 * mm],
     )
+    report_header.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LINEBELOW", (0, 0), (-1, -1), 1.5, colors.HexColor("#15120B")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+            ]
+        )
+    )
+
+    badge_specs = [
+        ("งานวิ่ง", str(summary.get("count", 0))),
+        ("จำนวนวัน", str(summary.get("days", 0))),
+        ("รวมค่าใช้จ่าย", f"{Decimal(str(summary.get('total_expenses') or '0')):,.2f} บาท"),
+    ]
+    badges = []
+    for label, value in badge_specs:
+        badge = Table(
+            [[[Paragraph(label, styles["badge_label"]), Paragraph(value, styles["badge_value"])]]],
+            colWidths=[54 * mm],
+        )
+        badge.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F5EDDD")),
+                    ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#D9D0BD")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2.5 * mm),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2.5 * mm),
+                    ("TOPPADDING", (0, 0), (-1, -1), 1.8 * mm),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8 * mm),
+                ]
+            )
+        )
+        badges.append(badge)
+
+    summary_badges = Table([badges], colWidths=[56.67 * mm] * 3)
+    summary_badges.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("RIGHTPADDING", (0, 0), (0, 0), 2.67 * mm),
+                ("LEFTPADDING", (1, 0), (1, 0), 1.33 * mm),
+                ("RIGHTPADDING", (1, 0), (1, 0), 1.33 * mm),
+                ("LEFTPADDING", (2, 0), (2, 0), 2.67 * mm),
+                ("RIGHTPADDING", (2, 0), (2, 0), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+
+    story: list[object] = [
+        report_header,
+        Spacer(1, 3.5 * mm),
+        summary_badges,
+        Spacer(1, 3.5 * mm),
+    ]
 
     if trips:
         for index, trip in enumerate(trips, start=1):
