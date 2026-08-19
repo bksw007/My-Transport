@@ -234,6 +234,21 @@ h1 {
   box-shadow: 0 6px 24px rgba(201,169,107,0.14);
 }
 
+.export-btn--new {
+  border-color: rgba(240,199,116,0.58);
+  background: var(--gold);
+  color: #171108;
+  font-weight: 700;
+  box-shadow: 0 8px 26px rgba(201,169,107,0.18);
+}
+
+.export-btn--new:hover {
+  border-color: var(--gold-hi);
+  background: var(--gold-hi);
+  color: #171108;
+  box-shadow: 0 10px 30px rgba(201,169,107,0.28);
+}
+
 .logout-btn {
   display: flex;
   align-items: center;

@@ -39,6 +39,8 @@ from supabase import Client, create_client
 from werkzeug.utils import secure_filename
 from xml.sax.saxutils import escape
 
+from card_pdf import build_card_report
+
 
 BASE_DIR = Path(__file__).resolve().parent
 RUNTIME_DIR = (
@@ -1025,6 +1027,35 @@ def export_monthly_report():
         selected_month=selected_month,
         selected_vehicle_type=selected_vehicle_type,
         month_label=month_label,
+    )
+
+
+@app.route("/export/monthly-cards.pdf", methods=["GET"])
+def export_monthly_cards_pdf():
+    selected_month = normalize_month_value(request.args.get("month"))
+    selected_vehicle_type = request.args.get("vehicle_type", "").strip()
+    trips, summary = fetch_trips(selected_month, selected_vehicle_type)
+    trips.reverse()
+    export_filename = f"My Transport Cards {selected_month}_{datetime.now().strftime('%H%M%S')}.pdf"
+
+    pdf_buffer = BytesIO()
+    build_card_report(
+        pdf_buffer,
+        trips=trips,
+        summary=summary,
+        selected_month=selected_month,
+        selected_vehicle_type=selected_vehicle_type,
+        current_user=get_current_user() or {},
+        upload_dir=UPLOAD_DIR,
+        font_regular=PDF_FONT_REGULAR,
+        font_bold=PDF_FONT_BOLD,
+    )
+    pdf_buffer.seek(0)
+    return send_file(
+        pdf_buffer,
+        as_attachment=True,
+        download_name=export_filename,
+        mimetype="application/pdf",
     )
 
 
