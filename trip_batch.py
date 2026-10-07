@@ -35,7 +35,7 @@ def build_trip_batch(
     base_note = str(base_trip.get("note") or "").strip()
 
     for round_number in range(1, round_count + 1):
-        round_label = f"รอบ {round_number}"
+        round_label = "" if round_count == 1 else f"รอบ {round_number}"
         outbound = dict(base_trip)
         outbound["note"] = _append_note(base_note, round_label)
         trips.append(outbound)

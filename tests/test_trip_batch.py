@@ -31,13 +31,13 @@ class BuildTripBatchTests(unittest.TestCase):
             "owner": "งาน มิตซูบิชิ",
         }
 
-    def test_single_round_adds_round_note(self):
+    def test_single_round_keeps_original_note_without_round_label(self):
         rows = build_trip_batch(self.base_trip, round_count=1, return_pickup=False)
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["origin"], "เอ")
         self.assertEqual(rows[0]["destination"], "บี")
-        self.assertEqual(rows[0]["note"], "สินค้าแช่เย็น · รอบ 1")
+        self.assertEqual(rows[0]["note"], "สินค้าแช่เย็น")
 
     def test_five_rounds_create_five_numbered_outbound_rows(self):
         rows = build_trip_batch(self.base_trip, round_count=5, return_pickup=False)
@@ -62,13 +62,19 @@ class BuildTripBatchTests(unittest.TestCase):
             ],
         )
 
+    def test_single_round_return_adds_only_return_pickup_note(self):
+        rows = build_trip_batch(self.base_trip, round_count=1, return_pickup=True)
+
+        self.assertEqual(rows[0]["note"], "สินค้าแช่เย็น")
+        self.assertEqual(rows[1]["note"], "สินค้าแช่เย็น · รับกลับ")
+
     def test_empty_note_does_not_add_a_leading_separator(self):
         self.base_trip["note"] = ""
 
         rows = build_trip_batch(self.base_trip, round_count=1, return_pickup=True)
 
-        self.assertEqual(rows[0]["note"], "รอบ 1")
-        self.assertEqual(rows[1]["note"], "รอบ 1 · รับกลับ")
+        self.assertEqual(rows[0]["note"], "")
+        self.assertEqual(rows[1]["note"], "รับกลับ")
 
 
 if __name__ == "__main__":
