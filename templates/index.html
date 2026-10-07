@@ -152,6 +152,32 @@
                 <input id="vehicle_type" name="vehicle_type" type="text" placeholder="เช่น 4 ล้อ, 6 ล้อ, รถเทรลเลอร์">
               </div>
 
+              <div class="batch-controls">
+                <div class="batch-row">
+                  <div class="field">
+                    <label for="round_count">จำนวนรอบ</label>
+                    <div class="round-input-wrap">
+                      <input id="round_count" name="round_count" type="number" inputmode="numeric" min="1" max="100" step="1" value="1" required>
+                      <span>รอบ</span>
+                    </div>
+                  </div>
+
+                  <label class="return-toggle" for="return_pickup">
+                    <input id="return_pickup" name="return_pickup" type="checkbox" value="1">
+                    <span class="return-toggle-box" aria-hidden="true">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" width="12" height="12">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 8.5l3 3 7-7"/>
+                      </svg>
+                    </span>
+                    <span class="return-toggle-copy">
+                      <strong>รับสินค้ากลับ</strong>
+                      <small>สร้างเที่ยวกลับโดยสลับต้นทางและปลายทาง</small>
+                    </span>
+                  </label>
+                </div>
+                <p class="batch-summary" id="batch-summary" aria-live="polite">จะบันทึก 1 รายการ · รอบ 1</p>
+              </div>
+
               <div class="field">
                 <label for="toll_fee">ค่าใช้จ่าย</label>
                 <input id="toll_fee" name="toll_fee" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00">
@@ -480,6 +506,14 @@
         }, 0);
       }
 
+      function getRequestedTripCounts(form) {
+        const roundInput = form.querySelector('[name="round_count"]');
+        const parsedRounds = Number.parseInt(roundInput?.value || '1', 10);
+        const rounds = Number.isFinite(parsedRounds) ? Math.min(100, Math.max(1, parsedRounds)) : 1;
+        const hasReturn = form.querySelector('[name="return_pickup"]')?.checked || false;
+        return { rounds, hasReturn, total: rounds * (hasReturn ? 2 : 1) };
+      }
+
       function bindCompressedSubmit(form, submitSelector, finalText) {
         form?.addEventListener('submit', async function(e) {
           e.preventDefault();
@@ -488,6 +522,7 @@
           const btn = this.querySelector(submitSelector);
           const imageInputs = [...this.querySelectorAll('input[type="file"][name="images"]')]
             .filter(input => input.files && input.files.length);
+          const tripCounts = getRequestedTripCounts(this);
           this.dataset.submitting = '1';
           btn.disabled = true;
           let abortReason = '';
@@ -509,7 +544,9 @@
             }, 75000);
             showSaveStatus(
               finalText.replace(/\.{3}$|…$/u, ''),
-              imageInputs.length ? 'กำลังอัปโหลดรูปและบันทึกข้อมูล...' : 'กำลังบันทึกข้อมูล...',
+              imageInputs.length
+                ? `กำลังอัปโหลดรูปและบันทึก ${tripCounts.total} รายการ...`
+                : `กำลังบันทึก ${tripCounts.total} รายการ...`,
               {
                 actionText: 'หยุดรอ',
                 onAction: () => {
@@ -565,8 +602,27 @@
         fileZone.classList.toggle('has-files', n > 0);
       });
 
+      const tripForm = document.querySelector('.trip-form');
+      const roundCountInput = document.getElementById('round_count');
+      const returnPickupInput = document.getElementById('return_pickup');
+      const batchSummary = document.getElementById('batch-summary');
+
+      function updateBatchSummary() {
+        if (!tripForm || !batchSummary) return;
+        const { rounds, hasReturn, total } = getRequestedTripCounts(tripForm);
+        batchSummary.textContent = hasReturn
+          ? `จะบันทึก ${total} รายการ · ${rounds} เที่ยวไป + ${rounds} เที่ยวกลับ`
+          : rounds === 1
+            ? 'จะบันทึก 1 รายการ · รอบ 1'
+            : `จะบันทึก ${total} รายการ · รอบ 1–${rounds}`;
+      }
+
+      roundCountInput?.addEventListener('input', updateBatchSummary);
+      returnPickupInput?.addEventListener('change', updateBatchSummary);
+      updateBatchSummary();
+
       /* ── Main form: loading on submit ───────────────────────────── */
-      bindCompressedSubmit(document.querySelector('.trip-form'), '.submit-btn', 'กำลังบันทึก...');
+      bindCompressedSubmit(tripForm, '.submit-btn', 'กำลังบันทึก...');
 
       /* ── Export PDF: loading until download starts ───────────────── */
       document.querySelector('.export-btn')?.addEventListener('click', function() {

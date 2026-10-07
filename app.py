@@ -27,6 +27,7 @@ from flask import (
 )
 from authlib.integrations.flask_client import OAuth
 import psycopg
+from psycopg import sql
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -40,6 +41,7 @@ from werkzeug.utils import secure_filename
 from xml.sax.saxutils import escape
 
 from card_pdf import build_card_report
+from trip_batch import build_trip_batch, parse_round_count
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -360,7 +362,7 @@ def fetch_trips(month_value: str | None, vehicle_type: str = "") -> tuple[list[d
               AND t.trip_date < %s
               AND (%s = '' OR COALESCE(t.vehicle_type, '') = %s)
             GROUP BY t.id
-            ORDER BY t.trip_date DESC, t.id DESC
+            ORDER BY t.trip_date DESC, t.created_at DESC, t.id ASC
             """,
             (user_email, start, end, selected_vehicle_type, selected_vehicle_type),
         )
@@ -551,6 +553,117 @@ def save_images(files: Iterable) -> list[dict]:
     return saved_images
 
 
+def insert_trip_batch(
+    db: psycopg.Connection,
+    trips: list[dict],
+    user_email: str,
+    created_at: datetime,
+) -> list[int]:
+    row_template = sql.SQL("({})").format(
+        sql.SQL(", ").join(sql.Placeholder() for _ in range(9))
+    )
+    query = sql.SQL(
+        """
+        INSERT INTO trips (
+            trip_date, origin, destination, vehicle_type, toll_fee,
+            note, owner, user_email, created_at
+        )
+        VALUES {}
+        RETURNING id
+        """
+    ).format(sql.SQL(", ").join(row_template for _ in trips))
+    params: list[object] = []
+    for trip in trips:
+        params.extend(
+            [
+                trip["trip_date"],
+                trip["origin"],
+                trip["destination"],
+                trip["vehicle_type"],
+                trip["toll_fee"],
+                trip["note"],
+                trip["owner"],
+                user_email,
+                created_at,
+            ]
+        )
+
+    with db.cursor() as cursor:
+        cursor.execute(query, params)
+        return [row[0] for row in cursor.fetchall()]
+
+
+def insert_trip_image_references(
+    db: psycopg.Connection,
+    trip_ids: list[int],
+    images: list[dict],
+) -> None:
+    records = [
+        (
+            trip_id,
+            image["file_name"],
+            image["original_name"],
+            image["storage_path"],
+            image["public_url"],
+        )
+        for trip_id in trip_ids
+        for image in images
+    ]
+    if not records:
+        return
+
+    row_template = sql.SQL("({})").format(
+        sql.SQL(", ").join(sql.Placeholder() for _ in range(5))
+    )
+    query = sql.SQL(
+        """
+        INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
+        VALUES {}
+        """
+    ).format(sql.SQL(", ").join(row_template for _ in records))
+    params = [value for record in records for value in record]
+    with db.cursor() as cursor:
+        cursor.execute(query, params)
+
+
+def find_unreferenced_images(
+    db: psycopg.Connection,
+    image_records: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    unique_records = list(dict.fromkeys(image_records))
+    storage_paths = [storage_path for _, storage_path in unique_records if storage_path]
+    if not storage_paths:
+        return unique_records
+
+    with db.cursor() as cursor:
+        cursor.execute(
+            "SELECT DISTINCT storage_path FROM trip_images WHERE storage_path = ANY(%s)",
+            (storage_paths,),
+        )
+        referenced_paths = {row[0] for row in cursor.fetchall()}
+    return [record for record in unique_records if record[1] not in referenced_paths]
+
+
+def remove_image_files(image_records: list[tuple[str, str]]) -> None:
+    if not image_records:
+        return
+
+    storage_client = get_storage_client()
+    storage_paths: list[str] = []
+    for file_name, storage_path in image_records:
+        if storage_path:
+            storage_paths.append(storage_path)
+        local_path = UPLOAD_DIR / file_name
+        if local_path.exists():
+            local_path.unlink()
+
+    if storage_client and storage_paths:
+        try:
+            storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).remove(storage_paths)
+        except Exception:
+            pass
+
+
 def safe_next_url(next_url: str | None) -> str:
     if not next_url or not next_url.startswith("/") or next_url.startswith("//"):
         return url_for("index")
@@ -636,6 +749,7 @@ def create_trip():
     note = request.form.get("note", "").strip()
     owner = request.form.get("owner", "").strip()
     submission_token = request.form.get("submission_token", "").strip()[:128]
+    return_pickup = request.form.get("return_pickup") == "1"
 
     if not trip_date or not origin or not destination:
         flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
@@ -646,6 +760,26 @@ def create_trip():
     except ValueError as exc:
         flash(str(exc), "error")
         return redirect(url_for("index", month=trip_date[:7] if trip_date else None))
+
+    try:
+        round_count = parse_round_count(request.form.get("round_count"))
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("index", month=trip_date[:7] if trip_date else None))
+
+    trips_to_create = build_trip_batch(
+        {
+            "trip_date": trip_date,
+            "origin": origin,
+            "destination": destination,
+            "vehicle_type": vehicle_type,
+            "toll_fee": toll_fee,
+            "note": note,
+            "owner": owner,
+        },
+        round_count=round_count,
+        return_pickup=return_pickup,
+    )
 
     db = get_db()
     user_email = get_current_user_email()
@@ -672,38 +806,15 @@ def create_trip():
         flash(str(exc), "error")
         return redirect(url_for("index", month=trip_date[:7]))
 
-    with db.cursor() as cursor:
-        cursor.execute(
-            """
-            INSERT INTO trips (trip_date, origin, destination, vehicle_type, toll_fee, note, owner, user_email, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-            """,
-            (trip_date, origin, destination, vehicle_type, toll_fee, note, owner, user_email, datetime.utcnow()),
-        )
-        trip_id = cursor.fetchone()[0]
-
-    if saved_images:
-        with db.cursor() as cursor:
-            cursor.executemany(
-                """
-                INSERT INTO trip_images (trip_id, file_name, original_name, storage_path, public_url)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                [
-                    (
-                        trip_id,
-                        image_record["file_name"],
-                        image_record["original_name"],
-                        image_record["storage_path"],
-                        image_record["public_url"],
-                    )
-                    for image_record in saved_images
-                ],
-            )
+    trip_ids = insert_trip_batch(db, trips_to_create, user_email, datetime.utcnow())
+    insert_trip_image_references(db, trip_ids, saved_images)
 
     db.commit()
-    flash("บันทึกงานวิ่งเรียบร้อยแล้ว", "success")
+    created_count = len(trip_ids)
+    if created_count == 1:
+        flash("บันทึกงานวิ่งเรียบร้อยแล้ว", "success")
+    else:
+        flash(f"บันทึกงานวิ่ง {created_count} รายการเรียบร้อยแล้ว", "success")
     return redirect(url_for("index", month=trip_date[:7], tab="list", _anchor="list"))
 
 
@@ -815,22 +926,9 @@ def update_trip(trip_id: int):
                 ],
             )
 
+    unreferenced_images = find_unreferenced_images(db, removed_records)
     db.commit()
-
-    # ── remove files from local disk + storage bucket ──
-    storage_client = get_storage_client()
-    storage_paths_to_remove: list[str] = []
-    for file_name, storage_path in removed_records:
-        if storage_path:
-            storage_paths_to_remove.append(storage_path)
-        local_path = UPLOAD_DIR / file_name
-        if local_path.exists():
-            local_path.unlink()
-    if storage_client and storage_paths_to_remove:
-        try:
-            storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).remove(storage_paths_to_remove)
-        except Exception:
-            pass
+    remove_image_files(unreferenced_images)
 
     flash("แก้ไขรายการเรียบร้อยแล้ว", "success")
     return redirect(url_for("index", month=month or trip_date[:7], tab="list", _anchor="list"))
@@ -859,21 +957,13 @@ def delete_trip(trip_id: int):
             """,
             (trip_id, trip_id, user_email),
         )
-        cursor.execute("DELETE FROM trips WHERE id = %s AND user_email = %s", (trip_id, user_email))
+        cursor.execute(
+            "DELETE FROM trips WHERE id = %s AND user_email = %s",
+            (trip_id, user_email),
+        )
+    unreferenced_images = find_unreferenced_images(db, [(row[0], row[1]) for row in images])
     db.commit()
-
-    storage_client = get_storage_client()
-    storage_paths = []
-    for image in images:
-        file_name = image[0]
-        storage_path = image[1]
-        storage_paths.append(storage_path)
-        image_path = UPLOAD_DIR / file_name
-        if image_path.exists():
-            image_path.unlink()
-
-    if storage_client and storage_paths:
-        storage_client.storage.from_(SUPABASE_STORAGE_BUCKET).remove(storage_paths)
+    remove_image_files(unreferenced_images)
 
     flash("ลบรายการแล้ว", "success")
     return redirect(url_for("index", month=request.args.get("month"), tab="list", _anchor="list"))
