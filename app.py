@@ -214,6 +214,25 @@ def init_db() -> None:
             )
             cursor.execute(
                 """
+                CREATE TABLE IF NOT EXISTS submission_tokens (
+                    user_email TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    token TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (user_email, action, token)
+                )
+                """
+            )
+            cursor.execute("ALTER TABLE submission_tokens ENABLE ROW LEVEL SECURITY")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_submission_tokens_created_at "
+                "ON submission_tokens (created_at)"
+            )
+            cursor.execute(
+                "DELETE FROM submission_tokens WHERE created_at < NOW() - INTERVAL '30 days'"
+            )
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS suggestions (
                     id BIGSERIAL PRIMARY KEY,
                     field TEXT NOT NULL,
@@ -603,6 +622,7 @@ def index():
         selected_month=selected_month,
         selected_vehicle_type=selected_vehicle_type,
         today=date.today().isoformat(),
+        submission_token=uuid.uuid4().hex,
     )
 
 
@@ -615,6 +635,7 @@ def create_trip():
     toll_fee_raw = request.form.get("toll_fee", "").strip()
     note = request.form.get("note", "").strip()
     owner = request.form.get("owner", "").strip()
+    submission_token = request.form.get("submission_token", "").strip()[:128]
 
     if not trip_date or not origin or not destination:
         flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
@@ -626,14 +647,31 @@ def create_trip():
         flash(str(exc), "error")
         return redirect(url_for("index", month=trip_date[:7] if trip_date else None))
 
+    db = get_db()
+    user_email = get_current_user_email()
+    if submission_token:
+        with db.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO submission_tokens (user_email, action, token)
+                VALUES (%s, 'create-trip', %s)
+                ON CONFLICT DO NOTHING
+                RETURNING token
+                """,
+                (user_email, submission_token),
+            )
+            if cursor.fetchone() is None:
+                db.rollback()
+                flash("รายการนี้ถูกบันทึกแล้ว", "success")
+                return redirect(url_for("index", month=trip_date[:7], tab="list", _anchor="list"))
+
     try:
         saved_images = save_images(request.files.getlist("images"))
     except ValueError as exc:
+        db.rollback()
         flash(str(exc), "error")
         return redirect(url_for("index", month=trip_date[:7]))
 
-    db = get_db()
-    user_email = get_current_user_email()
     with db.cursor() as cursor:
         cursor.execute(
             """
@@ -679,6 +717,7 @@ def update_trip(trip_id: int):
     toll_fee_raw = request.form.get("toll_fee",   "").strip()
     note        = request.form.get("note",        "").strip()
     month       = request.form.get("month",       "").strip()
+    submission_token = request.form.get("submission_token", "").strip()[:128]
 
     if not trip_date or not origin or not destination:
         flash("กรอกวันที่ ต้นทาง และปลายทางให้ครบก่อนบันทึก", "error")
@@ -689,6 +728,24 @@ def update_trip(trip_id: int):
     except ValueError as exc:
         flash(str(exc), "error")
         return redirect(url_for("index", month=month or trip_date[:7]))
+
+    db = get_db()
+    user_email = get_current_user_email()
+    if submission_token:
+        with db.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO submission_tokens (user_email, action, token)
+                VALUES (%s, %s, %s)
+                ON CONFLICT DO NOTHING
+                RETURNING token
+                """,
+                (user_email, f"update-trip-{trip_id}", submission_token),
+            )
+            if cursor.fetchone() is None:
+                db.rollback()
+                flash("รายการนี้ถูกบันทึกแล้ว", "success")
+                return redirect(url_for("index", month=month or trip_date[:7], tab="list", _anchor="list"))
 
     # ── parse image-delete ids (must belong to this trip) ──
     delete_ids: list[int] = []
@@ -702,11 +759,10 @@ def update_trip(trip_id: int):
     try:
         new_images = save_images(request.files.getlist("images"))
     except ValueError as exc:
+        db.rollback()
         flash(str(exc), "error")
         return redirect(url_for("index", month=month or trip_date[:7]))
 
-    db = get_db()
-    user_email = get_current_user_email()
     with db.cursor() as cursor:
         cursor.execute(
             """

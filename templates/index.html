@@ -121,6 +121,7 @@
             </div>
 
             <form class="trip-form" action="{{ url_for('create_trip') }}" method="post" enctype="multipart/form-data">
+              <input type="hidden" name="submission_token" value="{{ submission_token }}">
 
               <div class="field">
                 <label for="trip_date">วันที่</label>
@@ -330,6 +331,16 @@
       </main>
     </div>
 
+    <div class="save-status-overlay" id="save-status-modal" aria-hidden="true">
+      <div class="save-status-box" role="dialog" aria-modal="true" aria-labelledby="save-status-title" aria-describedby="save-status-message">
+        <div class="loading-ring" id="save-status-ring" aria-hidden="true"></div>
+        <div class="save-status-icon" id="save-status-icon" aria-hidden="true"></div>
+        <h3 class="modal-title" id="save-status-title">กำลังบันทึก</h3>
+        <p class="modal-warn" id="save-status-message">กรุณารอสักครู่...</p>
+        <button class="modal-btn modal-btn--ghost save-status-action" id="save-status-action" type="button" hidden>ปิด</button>
+      </div>
+    </div>
+
     <script>
       /* ── View tabs ─────────────────────────────────────────────── */
       const viewTabs = [...document.querySelectorAll('.view-tab')];
@@ -364,16 +375,58 @@
         btn.innerHTML = `<span class="btn-spinner"></span>${text}`;
       }
 
+      const saveStatusModal = document.getElementById('save-status-modal');
+      const saveStatusTitle = document.getElementById('save-status-title');
+      const saveStatusMessage = document.getElementById('save-status-message');
+      const saveStatusRing = document.getElementById('save-status-ring');
+      const saveStatusIcon = document.getElementById('save-status-icon');
+      const saveStatusAction = document.getElementById('save-status-action');
+
+      function showSaveStatus(title, message, options = {}) {
+        saveStatusTitle.textContent = title;
+        saveStatusMessage.textContent = message;
+        saveStatusModal.classList.add('is-open');
+        saveStatusModal.setAttribute('aria-hidden', 'false');
+        saveStatusRing.hidden = options.state === 'error';
+        saveStatusIcon.hidden = options.state !== 'error';
+        saveStatusIcon.innerHTML = options.state === 'error'
+          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26" aria-hidden="true"><path stroke-linecap="round" d="M12 8v5m0 3h.01"/><circle cx="12" cy="12" r="9"/></svg>'
+          : '';
+        saveStatusAction.hidden = !options.actionText;
+        saveStatusAction.textContent = options.actionText || '';
+        saveStatusAction.onclick = options.onAction || null;
+      }
+
+      function closeSaveStatus() {
+        saveStatusModal.classList.remove('is-open');
+        saveStatusModal.setAttribute('aria-hidden', 'true');
+      }
+
+      function promiseWithTimeout(promise, timeoutMs) {
+        let timeoutId;
+        const timeout = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('image-processing-timeout')), timeoutMs);
+        });
+        return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+      }
+
+      function makeSubmissionToken() {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        const bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      }
+
       async function compressImageFile(file) {
         if (!file.type.startsWith('image/') || file.size <= 450 * 1024) return file;
         const url = URL.createObjectURL(file);
         try {
-          const img = await new Promise((resolve, reject) => {
+          const img = await promiseWithTimeout(new Promise((resolve, reject) => {
             const image = new Image();
             image.onload = () => resolve(image);
             image.onerror = reject;
             image.src = url;
-          });
+          }), 15000);
 
           const maxSide = 1600;
           const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
@@ -384,7 +437,10 @@
 
           let bestBlob = null;
           for (const quality of [0.78, 0.68, 0.58, 0.48]) {
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+            const blob = await promiseWithTimeout(
+              new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality)),
+              15000,
+            );
             if (!blob) break;
             bestBlob = blob;
             if (blob.size <= 650 * 1024) break;
@@ -426,33 +482,75 @@
 
       function bindCompressedSubmit(form, submitSelector, finalText) {
         form?.addEventListener('submit', async function(e) {
-          if (this.dataset.imagesCompressed === '1') {
-            setLoading(this.querySelector(submitSelector), finalText);
-            return;
-          }
+          e.preventDefault();
+          if (this.dataset.submitting === '1') return;
 
+          const btn = this.querySelector(submitSelector);
           const imageInputs = [...this.querySelectorAll('input[type="file"][name="images"]')]
             .filter(input => input.files && input.files.length);
-          if (!imageInputs.length) {
-            setLoading(this.querySelector(submitSelector), finalText);
-            return;
-          }
+          this.dataset.submitting = '1';
+          btn.disabled = true;
+          let abortReason = '';
 
-          e.preventDefault();
-          const btn = this.querySelector(submitSelector);
-          setLoading(btn, 'กำลังย่อรูป...');
           try {
-            await compressFileInputs(imageInputs);
-            if (selectedFilesSize(imageInputs) > 3800 * 1024) {
-              throw new Error('payload-too-large');
+            if (imageInputs.length && this.dataset.imagesCompressed !== '1') {
+              showSaveStatus('กำลังเตรียมรูป', 'กำลังย่อขนาดรูปก่อนอัปโหลด กรุณารอสักครู่...');
+              await compressFileInputs(imageInputs);
+              if (selectedFilesSize(imageInputs) > 3800 * 1024) {
+                throw new Error('payload-too-large');
+              }
+              this.dataset.imagesCompressed = '1';
             }
-            this.dataset.imagesCompressed = '1';
-            setLoading(btn, finalText);
-            this.submit();
-          } catch (_) {
+
+            const controller = new AbortController();
+            const requestTimeout = setTimeout(() => {
+              abortReason = 'request-timeout';
+              controller.abort();
+            }, 75000);
+            showSaveStatus(
+              finalText.replace(/\.{3}$|…$/u, ''),
+              imageInputs.length ? 'กำลังอัปโหลดรูปและบันทึกข้อมูล...' : 'กำลังบันทึกข้อมูล...',
+              {
+                actionText: 'หยุดรอ',
+                onAction: () => {
+                  abortReason = 'user-cancelled';
+                  controller.abort();
+                },
+              },
+            );
+
+            let response;
+            try {
+              response = await fetch(this.action, {
+                method: (this.method || 'post').toUpperCase(),
+                body: new FormData(this),
+                credentials: 'same-origin',
+                signal: controller.signal,
+              });
+            } finally {
+              clearTimeout(requestTimeout);
+            }
+
+            if (!response.ok) throw new Error(`save-failed-${response.status}`);
+            showSaveStatus('บันทึกสำเร็จ', 'กำลังเปิดรายการที่บันทึก...');
+            window.location.assign(response.url);
+          } catch (error) {
+            delete this.dataset.submitting;
             btn.disabled = false;
-            btn.innerHTML = btn.dataset.origHtml || btn.innerHTML;
-            alert('รูปที่เลือกยังมีขนาดรวมใหญ่เกินไป กรุณาเลือกรูปน้อยลงหรือส่งแยกหลายครั้งนะครับ');
+            const isTooLarge = error?.message === 'payload-too-large';
+            const isCancelled = abortReason === 'user-cancelled';
+            const message = isTooLarge
+              ? 'รูปที่เลือกมีขนาดรวมใหญ่เกินไป กรุณาเลือกรูปน้อยลงหรือส่งแยกหลายครั้ง'
+              : isCancelled
+                ? 'หยุดรอผลแล้ว รายการอาจบันทึกสำเร็จ กรุณาตรวจสอบรายการก่อนลองอีกครั้ง'
+                : abortReason === 'request-timeout'
+                  ? 'ใช้เวลานานเกิน 75 วินาที รายการอาจบันทึกสำเร็จ กรุณาตรวจสอบรายการก่อนลองอีกครั้ง'
+                  : 'บันทึกไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่';
+            showSaveStatus('บันทึกไม่สำเร็จ', message, {
+              state: 'error',
+              actionText: 'กลับไปแก้ไข',
+              onAction: closeSaveStatus,
+            });
           }
         });
       }
@@ -605,6 +703,7 @@
             <h3 class="modal-title" style="text-align:left;margin-bottom:16px">แก้ไขรายการ</h3>
             <form class="modal-form" action="/trips/${d.id}/edit" method="post" enctype="multipart/form-data">
               <input type="hidden" name="month" value="${escAttr(d.month)}">
+              <input type="hidden" name="submission_token" value="${makeSubmissionToken()}">
               <div class="mf-field">
                 <label class="mf-label">วันที่</label>
                 <input class="mf-input" type="date" name="trip_date" value="${escAttr(d.date)}" required>

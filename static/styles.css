@@ -1093,6 +1093,71 @@ h1 {
   animation: cbSpin 750ms linear infinite;
 }
 
+/* ── Save status modal ──────────────────────────────────────────── */
+.save-status-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0,0,0,0);
+  backdrop-filter: blur(0);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 180ms ease, background 180ms ease, backdrop-filter 180ms ease, visibility 180ms;
+}
+
+.save-status-overlay.is-open {
+  background: rgba(0,0,0,0.76);
+  backdrop-filter: blur(10px);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: all;
+}
+
+.save-status-box {
+  width: min(360px, 100%);
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 30px 24px 24px;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r);
+  background: var(--panel-alt);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  animation: modalPop 260ms ease both;
+}
+
+.save-status-box .modal-warn {
+  max-width: 280px;
+  margin-bottom: 4px;
+  line-height: 1.55;
+}
+
+.save-status-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(217,96,96,0.32);
+  border-radius: 50%;
+  background: rgba(217,96,96,0.12);
+  color: #f09090;
+}
+
+.save-status-action {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.save-status-overlay [hidden] {
+  display: none;
+}
+
 .modal-title {
   font-family: 'Kanit', sans-serif;
   font-size: 1.15rem;
