@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-import urllib.request
 import uuid
 from contextlib import closing
 from datetime import date, datetime
@@ -32,15 +31,14 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from supabase import Client, create_client
 from werkzeug.utils import secure_filename
 from xml.sax.saxutils import escape
 
-from card_pdf import build_card_report
+from card_pdf import ProfileBadge, build_card_report, profile_flowable
 from trip_batch import build_trip_batch, parse_round_count
 
 
@@ -62,6 +60,21 @@ GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configura
 LEGACY_TRIPS_OWNER_EMAIL = os.environ.get("LEGACY_TRIPS_OWNER_EMAIL", "").strip().lower()
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "gif"}
 VALID_SUGGESTION_FIELDS = {"origin", "destination", "owner", "vehicle_type"}
+THAI_MONTHS = (
+    "",
+    "มกราคม",
+    "กุมภาพันธ์",
+    "มีนาคม",
+    "เมษายน",
+    "พฤษภาคม",
+    "มิถุนายน",
+    "กรกฎาคม",
+    "สิงหาคม",
+    "กันยายน",
+    "ตุลาคม",
+    "พฤศจิกายน",
+    "ธันวาคม",
+)
 PDF_FONT_REGULAR = "Helvetica"
 PDF_FONT_BOLD = "Helvetica-Bold"
 PUBLIC_ENDPOINTS = {"login", "google_login", "google_callback", "static"}
@@ -309,6 +322,11 @@ def normalize_month_value(month_value: str | None) -> str:
             return fallback
 
 
+def thai_month_label(month_value: str) -> str:
+    selected = datetime.strptime(month_value, "%Y-%m")
+    return f"{THAI_MONTHS[selected.month]} {selected.year + 543}"
+
+
 def month_bounds(month_value: str | None) -> tuple[str, str]:
     selected_month = normalize_month_value(month_value)
     selected = datetime.strptime(selected_month, "%Y-%m")
@@ -499,19 +517,6 @@ def fetch_all_suggestions() -> dict[str, list[dict]]:
 def pdf_paragraph(value: object, style: ParagraphStyle, fallback: str = "-") -> Paragraph:
     text = str(value or fallback)
     return Paragraph(escape(text), style)
-
-
-def load_profile_image(picture_url: str | None, size: float) -> Image | None:
-    if not picture_url or not picture_url.startswith("https://"):
-        return None
-    try:
-        req = urllib.request.Request(picture_url, headers={"User-Agent": "MyTransportPDF/1.0"})
-        with urllib.request.urlopen(req, timeout=1.5) as response:
-            payload = response.read(512 * 1024)
-        ImageReader(BytesIO(payload))
-        return Image(BytesIO(payload), width=size, height=size)
-    except Exception:
-        return None
 
 
 def save_images(files: Iterable) -> list[dict]:
@@ -977,7 +982,7 @@ def export_monthly_pdf():
     current_user = get_current_user() or {}
     user_name = current_user.get("name") or current_user.get("email") or "-"
     user_email = current_user.get("email") or "-"
-    month_label = datetime.strptime(selected_month, "%Y-%m").strftime("%B %Y")
+    month_label = thai_month_label(selected_month)
     export_filename = f"My Transport {selected_month}_{datetime.now().strftime('%H%M%S')}.pdf"
 
     pdf_buffer = BytesIO()
@@ -990,9 +995,25 @@ def export_monthly_pdf():
         bottomMargin=14 * mm,
     )
     styles = getSampleStyleSheet()
-    title_style = styles["Title"]
-    title_style.textColor = colors.HexColor("#111111")
-    title_style.fontName = PDF_FONT_BOLD
+    eyebrow_style = ParagraphStyle(
+        "Eyebrow",
+        parent=styles["BodyText"],
+        fontName=PDF_FONT_BOLD,
+        fontSize=7.5,
+        leading=9,
+        textColor=colors.HexColor("#A57627"),
+        spaceAfter=0,
+    )
+    title_style = ParagraphStyle(
+        "ReportTitle",
+        parent=styles["Title"],
+        fontName=PDF_FONT_BOLD,
+        fontSize=23,
+        leading=25,
+        alignment=0,
+        textColor=colors.HexColor("#15120B"),
+        spaceAfter=0,
+    )
 
     body_style = ParagraphStyle(
         "Body",
@@ -1008,6 +1029,45 @@ def export_monthly_pdf():
         fontSize=8,
         leading=11,
         textColor=colors.HexColor("#666666"),
+    )
+    subtitle_style = ParagraphStyle(
+        "ReportSubtitle",
+        parent=small_style,
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.HexColor("#6F6758"),
+    )
+    user_name_style = ParagraphStyle(
+        "ReportUserName",
+        parent=body_style,
+        fontName=PDF_FONT_BOLD,
+        fontSize=9.5,
+        leading=11,
+        alignment=2,
+        textColor=colors.HexColor("#15120B"),
+    )
+    user_email_style = ParagraphStyle(
+        "ReportUserEmail",
+        parent=small_style,
+        fontSize=7.5,
+        leading=9,
+        alignment=2,
+        textColor=colors.HexColor("#6F6758"),
+    )
+    badge_label_style = ParagraphStyle(
+        "ReportBadgeLabel",
+        parent=small_style,
+        fontSize=7.5,
+        leading=9,
+        textColor=colors.HexColor("#6F6758"),
+    )
+    badge_value_style = ParagraphStyle(
+        "ReportBadgeValue",
+        parent=body_style,
+        fontName=PDF_FONT_BOLD,
+        fontSize=13.5,
+        leading=16,
+        textColor=colors.HexColor("#15120B"),
     )
     table_header_style = ParagraphStyle(
         "TableHeader",
@@ -1025,40 +1085,104 @@ def export_monthly_pdf():
         textColor=colors.HexColor("#222222"),
     )
 
-    profile_image = load_profile_image(current_user.get("picture"), 12 * mm)
-    profile_mark = profile_image or Table(
-        [[pdf_paragraph((user_name or "?")[:1].upper(), table_header_style)]],
-        colWidths=[12 * mm],
-        rowHeights=[12 * mm],
-        style=TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f2e3bf")),
-                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#111111")),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d7bd78")),
-            ]
-        ),
+    profile_image = profile_flowable(current_user.get("picture"), 11 * mm)
+    profile_mark = profile_image or ProfileBadge(
+        (user_name or "?")[:1].upper(),
+        11 * mm,
+        PDF_FONT_BOLD,
     )
     profile_table = Table(
         [
             [
                 profile_mark,
                 [
-                    Paragraph("ผู้ใช้งาน", small_style),
-                    pdf_paragraph(user_name, body_style),
-                    pdf_paragraph(user_email, small_style),
+                    pdf_paragraph(user_name, user_name_style),
+                    pdf_paragraph(user_email, user_email_style),
                 ],
             ]
         ],
-        colWidths=[15 * mm, 95 * mm],
+        colWidths=[14 * mm, 48 * mm],
+        hAlign="RIGHT",
     )
     profile_table.setStyle(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+
+    title_content: list[object] = [
+        Paragraph("MONTHLY TRANSPORT REPORT", eyebrow_style),
+        Spacer(1, 1.2 * mm),
+        Paragraph("My Transport", title_style),
+        Spacer(1, 1.5 * mm),
+        Paragraph(f"สรุปรายเดือน {month_label}", subtitle_style),
+    ]
+    if selected_vehicle_type:
+        title_content.extend(
+            [
+                Spacer(1, 0.8 * mm),
+                pdf_paragraph(f"ประเภทรถ: {selected_vehicle_type}", subtitle_style),
+            ]
+        )
+
+    report_header = Table(
+        [[title_content, profile_table]],
+        colWidths=[108 * mm, 62 * mm],
+    )
+    report_header.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LINEBELOW", (0, 0), (-1, -1), 1.3, colors.HexColor("#B98C3D")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+            ]
+        )
+    )
+
+    badge_specs = [
+        ("งานวิ่ง", str(summary["count"])),
+        ("จำนวนวัน", str(summary["days"])),
+        ("รวมค่าใช้จ่าย", f"{Decimal(summary['total_expenses']):,.2f} บาท"),
+    ]
+    badges = []
+    for label, value in badge_specs:
+        badge = Table(
+            [[[Paragraph(label, badge_label_style), Paragraph(value, badge_value_style)]]],
+            colWidths=[54 * mm],
+        )
+        badge.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F5EDDD")),
+                    ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#D9D0BD")),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 2.5 * mm),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2.5 * mm),
+                    ("TOPPADDING", (0, 0), (-1, -1), 1.8 * mm),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 1.8 * mm),
+                ]
+            )
+        )
+        badges.append(badge)
+
+    summary_badges = Table([badges], colWidths=[56.67 * mm] * 3)
+    summary_badges.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (0, 0), 0),
+                ("RIGHTPADDING", (0, 0), (0, 0), 2.67 * mm),
+                ("LEFTPADDING", (1, 0), (1, 0), 1.33 * mm),
+                ("RIGHTPADDING", (1, 0), (1, 0), 1.33 * mm),
+                ("LEFTPADDING", (2, 0), (2, 0), 2.67 * mm),
+                ("RIGHTPADDING", (2, 0), (2, 0), 0),
                 ("TOPPADDING", (0, 0), (-1, -1), 0),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
             ]
@@ -1066,23 +1190,11 @@ def export_monthly_pdf():
     )
 
     story = [
-        Paragraph("My Transport", title_style),
-        Spacer(1, 6),
-        profile_table,
-        Spacer(1, 8),
-        Paragraph(f"สรุปรายเดือน {month_label}", body_style),
-        Spacer(1, 10),
-        Paragraph(
-            (
-                f"จำนวนงานวิ่ง {summary['count']} | จำนวนวัน {summary['days']} | "
-                f"รวมค่าใช้จ่าย {Decimal(summary['total_expenses']):,.2f} บาท"
-            ),
-            body_style,
-        ),
-        Spacer(1, 14),
+        report_header,
+        Spacer(1, 3.5 * mm),
+        summary_badges,
+        Spacer(1, 4.5 * mm),
     ]
-    if selected_vehicle_type:
-        story.insert(5, pdf_paragraph(f"ประเภทรถ: {selected_vehicle_type}", body_style))
 
     table_data = [
         [

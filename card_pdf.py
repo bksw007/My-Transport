@@ -168,7 +168,7 @@ def _photo_flowable(
         return None
 
 
-def _profile_flowable(picture_url: str | None, size: float) -> Image | None:
+def profile_flowable(picture_url: str | None, size: float) -> Image | None:
     if not picture_url or not picture_url.startswith("https://"):
         return None
     try:
@@ -507,7 +507,7 @@ def build_card_report(
 
     user_name = current_user.get("name") or current_user.get("email") or "-"
     user_email = current_user.get("email") or "-"
-    profile_mark = _profile_flowable(current_user.get("picture"), 11 * mm) or ProfileBadge(
+    profile_mark = profile_flowable(current_user.get("picture"), 11 * mm) or ProfileBadge(
         (user_name or "?")[:1].upper(),
         11 * mm,
         font_bold,
@@ -556,7 +556,7 @@ def build_card_report(
         TableStyle(
             [
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LINEBELOW", (0, 0), (-1, -1), 1.5, colors.HexColor("#15120B")),
+                ("LINEBELOW", (0, 0), (-1, -1), 1.3, colors.HexColor("#B98C3D")),
                 ("LEFTPADDING", (0, 0), (-1, -1), 0),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                 ("TOPPADDING", (0, 0), (-1, -1), 0),
