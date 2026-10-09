@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
@@ -42,6 +43,8 @@ THAI_MONTHS = (
 
 PDF_IMAGE_QUALITY = 65
 PDF_IMAGE_PIXELS_PER_MM = 6
+PDF_IMAGE_DOWNLOAD_TIMEOUT = 4
+PDF_IMAGE_DOWNLOAD_WORKERS = 6
 
 
 class ProfileBadge(Flowable):
@@ -73,6 +76,9 @@ def _month_label(month_value: str) -> str:
 
 
 def _read_photo(image_record: dict, upload_dir: Path) -> bytes | None:
+    if "_pdf_payload" in image_record:
+        return image_record["_pdf_payload"]
+
     file_name = Path(str(image_record.get("file_name") or "")).name
     if file_name:
         local_path = upload_dir / file_name
@@ -90,10 +96,42 @@ def _read_photo(image_record: dict, upload_dir: Path) -> bytes | None:
             image_url,
             headers={"User-Agent": "MyTransportCardPDF/1.0"},
         )
-        with urllib.request.urlopen(request, timeout=5) as response:
+        with urllib.request.urlopen(request, timeout=PDF_IMAGE_DOWNLOAD_TIMEOUT) as response:
             return response.read(12 * 1024 * 1024)
     except Exception:
         return None
+
+
+def _prefetch_remote_photos(trips: list[dict], upload_dir: Path) -> None:
+    remote_images: dict[str, list[dict]] = {}
+    for trip in trips:
+        for image_record in trip.get("images") or []:
+            file_name = Path(str(image_record.get("file_name") or "")).name
+            if file_name and (upload_dir / file_name).is_file():
+                continue
+            image_url = str(image_record.get("url") or "")
+            if image_url.startswith(("https://", "http://")):
+                remote_images.setdefault(image_url, []).append(image_record)
+
+    if not remote_images:
+        return
+
+    def download(image_url: str) -> tuple[str, bytes | None]:
+        try:
+            request = urllib.request.Request(
+                image_url,
+                headers={"User-Agent": "MyTransportCardPDF/1.0"},
+            )
+            with urllib.request.urlopen(request, timeout=PDF_IMAGE_DOWNLOAD_TIMEOUT) as response:
+                return image_url, response.read(12 * 1024 * 1024)
+        except Exception:
+            return image_url, None
+
+    worker_count = min(PDF_IMAGE_DOWNLOAD_WORKERS, len(remote_images))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        for image_url, payload in executor.map(download, remote_images):
+            for image_record in remote_images[image_url]:
+                image_record["_pdf_payload"] = payload
 
 
 def _photo_flowable(
@@ -437,6 +475,7 @@ def build_card_report(
     font_regular: str,
     font_bold: str,
 ) -> None:
+    _prefetch_remote_photos(trips, upload_dir)
     doc = SimpleDocTemplate(
         target,
         pagesize=A4,

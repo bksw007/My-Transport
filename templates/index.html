@@ -56,13 +56,13 @@
             {% endif %}
             <strong>{{ current_user.name or current_user.email }}</strong>
           </div>
-          <a class="export-btn" href="{{ url_for('export_monthly_report', month=selected_month, vehicle_type=selected_vehicle_type) }}">
+          <a class="export-btn" href="{{ url_for('export_monthly_pdf', month=selected_month, vehicle_type=selected_vehicle_type) }}" data-export-label="PDF แบบตาราง">
             <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
               <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
             </svg>
             Export PDF
           </a>
-          <a class="export-btn export-btn--new" href="{{ url_for('export_monthly_cards_pdf', month=selected_month, vehicle_type=selected_vehicle_type) }}">
+          <a class="export-btn export-btn--new" href="{{ url_for('export_monthly_cards_pdf', month=selected_month, vehicle_type=selected_vehicle_type) }}" data-export-label="PDF แบบการ์ด">
             <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" aria-hidden="true">
               <path d="M4 2.5A1.5 1.5 0 002.5 4v12A1.5 1.5 0 004 17.5h12a1.5 1.5 0 001.5-1.5V4A1.5 1.5 0 0016 2.5H4zm0 1.5h12v5H4V4zm0 6.5h5V16H4v-5.5zm6.5 0H16V16h-5.5v-5.5z"/>
             </svg>
@@ -409,15 +409,19 @@
       const saveStatusAction = document.getElementById('save-status-action');
 
       function showSaveStatus(title, message, options = {}) {
+        const state = options.state || 'loading';
         saveStatusTitle.textContent = title;
         saveStatusMessage.textContent = message;
         saveStatusModal.classList.add('is-open');
         saveStatusModal.setAttribute('aria-hidden', 'false');
-        saveStatusRing.hidden = options.state === 'error';
-        saveStatusIcon.hidden = options.state !== 'error';
-        saveStatusIcon.innerHTML = options.state === 'error'
+        saveStatusRing.hidden = state !== 'loading';
+        saveStatusIcon.hidden = state === 'loading';
+        saveStatusIcon.classList.toggle('is-success', state === 'success');
+        saveStatusIcon.innerHTML = state === 'error'
           ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="26" height="26" aria-hidden="true"><path stroke-linecap="round" d="M12 8v5m0 3h.01"/><circle cx="12" cy="12" r="9"/></svg>'
-          : '';
+          : state === 'success'
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="26" height="26" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7 12.5l3.2 3.2L17.5 8.5"/><circle cx="12" cy="12" r="9"/></svg>'
+            : '';
         saveStatusAction.hidden = !options.actionText;
         saveStatusAction.textContent = options.actionText || '';
         saveStatusAction.onclick = options.onAction || null;
@@ -624,15 +628,93 @@
       /* ── Main form: loading on submit ───────────────────────────── */
       bindCompressedSubmit(tripForm, '.submit-btn', 'กำลังบันทึก...');
 
-      /* ── Export PDF: loading until download starts ───────────────── */
-      document.querySelector('.export-btn')?.addEventListener('click', function() {
-        const orig = this.innerHTML;
-        this.classList.add('is-loading');
-        this.innerHTML = `<span class="btn-spinner"></span>กำลังเปิดรายงาน...`;
-        setTimeout(() => {
-          this.classList.remove('is-loading');
-          this.innerHTML = orig;
-        }, 8000);
+      /* ── Export PDF: request the file and report every state ──────── */
+      function exportFilename(response, fallback) {
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+        const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+        let filename = fallback;
+        try {
+          filename = encoded ? decodeURIComponent(encoded) : (plain || fallback);
+        } catch (_) {
+          filename = plain || fallback;
+        }
+        return filename.replace(/[\\/]/g, '-');
+      }
+
+      function startBlobDownload(blob, filename) {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+      }
+
+      document.querySelectorAll('.export-btn').forEach(button => {
+        button.addEventListener('click', async function(event) {
+          event.preventDefault();
+          if (this.classList.contains('is-loading')) return;
+
+          const label = this.dataset.exportLabel || 'PDF';
+          const fallbackName = `My Transport ${new Date().toISOString().slice(0, 10)}.pdf`;
+          const controller = new AbortController();
+          let abortReason = '';
+          const requestTimeout = setTimeout(() => {
+            abortReason = 'request-timeout';
+            controller.abort();
+          }, 120000);
+
+          this.classList.add('is-loading');
+          this.setAttribute('aria-disabled', 'true');
+          showSaveStatus('กำลังสร้าง PDF', `กำลังจัดทำ${label} กรุณารอสักครู่...`, {
+            actionText: 'หยุดรอ',
+            onAction: () => {
+              abortReason = 'user-cancelled';
+              controller.abort();
+            },
+          });
+
+          try {
+            const response = await fetch(this.href, {
+              credentials: 'same-origin',
+              signal: controller.signal,
+            });
+            if (!response.ok) throw new Error(`export-failed-${response.status}`);
+            if (!(response.headers.get('Content-Type') || '').includes('application/pdf')) {
+              throw new Error('export-not-pdf');
+            }
+
+            const blob = await response.blob();
+            if (!blob.size) throw new Error('export-empty');
+            startBlobDownload(blob, exportFilename(response, fallbackName));
+            showSaveStatus('ดาวน์โหลดเรียบร้อย', `${label} พร้อมใช้งานแล้ว`, {
+              state: 'success',
+              actionText: 'ปิด',
+              onAction: closeSaveStatus,
+            });
+          } catch (error) {
+            const message = abortReason === 'user-cancelled'
+              ? 'หยุดรอการสร้าง PDF แล้ว'
+              : abortReason === 'request-timeout'
+                ? 'ใช้เวลาสร้าง PDF นานเกิน 2 นาที กรุณาลองใหม่อีกครั้ง'
+                : error?.message === 'export-not-pdf'
+                  ? 'เซสชันอาจหมดอายุ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง'
+                  : 'สร้าง PDF ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่';
+            showSaveStatus('ดาวน์โหลดไม่สำเร็จ', message, {
+              state: 'error',
+              actionText: 'ปิด',
+              onAction: closeSaveStatus,
+            });
+          } finally {
+            clearTimeout(requestTimeout);
+            this.classList.remove('is-loading');
+            this.removeAttribute('aria-disabled');
+          }
+        });
       });
 
       /* ── Date field: click anywhere to open picker ─────────────── */

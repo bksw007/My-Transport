@@ -1267,6 +1267,12 @@ h1 {
   color: #f09090;
 }
 
+.save-status-icon.is-success {
+  border-color: rgba(111, 196, 142, 0.38);
+  background: rgba(111, 196, 142, 0.13);
+  color: #8ad9a7;
+}
+
 .save-status-action {
   width: 100%;
   margin-top: 6px;
